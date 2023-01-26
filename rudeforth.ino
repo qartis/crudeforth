@@ -81,12 +81,9 @@ typedef uint64_t udcell_t;
 
 
 #define PLATFORM_OPCODE_LIST \
-  /* Serial */ \
-  X("Serial.begin", SERIAL_BEGIN, Serial.begin(tos); DROP) \
-  X("Serial.end", SERIAL_END, Serial.end()) \
-  X("Serial.available", SERIAL_AVAILABLE, DUP; tos = Serial.available()) \
-  X("Serial.readBytes", SERIAL_READ_BYTES, tos = Serial.readBytes((uint8_t *) *sp, tos); --sp) \
-  X("Serial.write", SERIAL_WRITE, tos = Serial.write((const uint8_t *) *sp, tos); --sp) \
+  X("key", KEY, while(!Serial.available()) {} DUP; tos = Serial.read()) \
+  X("key?", KEY_Q, DUP; tos = Serial.available()) \
+  X("type", TYPE, Serial.write((const uint8_t *) *sp, tos); --sp; DROP) \
   X("ms", MS, delay(tos); DROP) \
   X("bye", BYE, exit(tos)) \
 
@@ -372,12 +369,6 @@ const char boot[] =
 " : defer ( \"name\" -- ) create 0 , does> @ dup 0= throw execute ; "
 " : is ( xt \"name -- ) postpone to ; immediate "
 
-" : type ( a n -- ) Serial.write drop ; "
-" : key? ( -- n ) Serial.available ; "
-" : key ( -- n ) "
-"    begin Serial.available until 0 >r rp@ 1 Serial.readBytes drop r> ; "
-
-
 " : emit ( n -- ) >r rp@ 1 type rdrop ; "
 " : space bl emit ;   : cr nl emit ; "
 
@@ -415,6 +406,7 @@ const char boot[] =
 " ' notfound 'notfound ! "
 
 // Examine Dictionary 
+// TODO: crashes when decompiling primitives and words containing ." and s"
 " : see. ( xt -- ) >name type space ; "
 " : see-one ( xt -- xt+1 ) "
 "    dup @ dup ['] DOLIT = if drop cell+ dup @ . else see. then cell+ ; "
@@ -450,7 +442,7 @@ const char boot[] =
 //" : bounds over + swap ; "
 " : .s .\" < \" depth . .\" > \" depth 0 = if exit then depth 0 do sp0 i 1 + cells + @ . loop cr ; "
 
-" 115200 Serial.begin "
+
 " 100 ms "
 " ok "
 ;
@@ -458,6 +450,7 @@ const char boot[] =
 
 void setup() {
   cell_t *heap = (cell_t *) malloc(HEAP_SIZE);
+  Serial.begin(115200);
   ueforth(heap, boot, sizeof(boot));
 }
 
