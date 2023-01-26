@@ -4,6 +4,7 @@
 
 #define HEAP_SIZE (100 * 1024)
 #define STACK_SIZE 512
+#define FLAG_IMMEDIATE 1
 
 typedef intptr_t cell_t;
 typedef int64_t dcell_t;
@@ -13,7 +14,7 @@ typedef uint64_t udcell_t;
 #define DUP *++sp = tos
 #define DROP tos = *sp--
 #define COMMA(n) *g_sys.here++ = (n)
-#define IMMEDIATE() g_sys.latest[-1] |= 1
+#define IMMEDIATE() g_sys.latest[-1] |= FLAG_IMMEDIATE
 #define DOES(ip) *g_sys.latest = (cell_t) && OP_DODOES; g_sys.latest[1] = (cell_t) ip
 #define UMSMOD ud = *(udcell_t *) &sp[-1]; \
                --sp; *sp = (cell_t) (ud % tos); \
@@ -77,16 +78,12 @@ typedef uint64_t udcell_t;
       w = *sp; --sp; DROP; \
       if (w) goto **(void **) w) \
   X("EXIT", EXIT, ip = (cell_t *)*rp; --rp) \
-  X(";", SEMICOLON, COMMA(g_sys.DOEXIT_XT); g_sys.state = 0) \
-
-
-#define PLATFORM_OPCODE_LIST \
   X("key", KEY, while(!Serial.available()) {} DUP; tos = Serial.read()) \
   X("key?", KEY_Q, DUP; tos = Serial.available()) \
   X("type", TYPE, Serial.write((const uint8_t *) *sp, tos); --sp; DROP) \
   X("ms", MS, delay(tos); DROP) \
   X("bye", BYE, exit(tos)) \
-
+  X(";", SEMICOLON, COMMA(g_sys.DOEXIT_XT); g_sys.state = 0) /* SEMICOLON MUST BE LAST */ \
 
 #define NEXT w = *ip++; goto **(void **) w
 #define CELL_LEN(n) (((n) + sizeof(cell_t) - 1) / sizeof(cell_t))
@@ -184,7 +181,7 @@ static cell_t *evaluate1(cell_t *sp) {
   cell_t len = parse(' ', &name);
   cell_t xt = find((const char *) name, len);
   if (xt) {
-    if (g_sys.state && !(((cell_t *) xt)[-1] & 1)) {  // bit 0 of flags is immediate
+    if (g_sys.state && !(((cell_t *) xt)[-1] & FLAG_IMMEDIATE)) {
       *g_sys.here++ = xt;
     } else {
       call = xt;
@@ -218,11 +215,12 @@ static void ueforth(void *here, const char *src, cell_t src_len) {
   register cell_t tos = 0, *ip, w;
   dcell_t d;
   udcell_t ud;
+
 #define X(name, op, code) create(name, sizeof(name) - 1, && OP_ ## op);
-  PLATFORM_OPCODE_LIST
   OPCODE_LIST
 #undef X
-  g_sys.latest[-1] = 1;  // Make ; IMMEDIATE
+
+  g_sys.latest[-1] = FLAG_IMMEDIATE;  // Make ; IMMEDIATE
   g_sys.DOLIT_XT = FIND("DOLIT");
   g_sys.DOEXIT_XT = FIND("EXIT");
   g_sys.notfound = FIND("DROP");
@@ -233,11 +231,15 @@ static void ueforth(void *here, const char *src, cell_t src_len) {
   g_sys.base = 10;
   g_sys.tib = src;
   g_sys.ntib = src_len;
+
+  /* start interpreting EVALUATE1/BRANCH/ip loop defined above */
   NEXT;
+
+
 #define X(name, op, code) OP_ ## op: { code; } NEXT;
-  PLATFORM_OPCODE_LIST
   OPCODE_LIST
 #undef X
+
   OP_DOCOLON: ++rp; *rp = (cell_t) ip; ip = (cell_t *) (w + sizeof(cell_t)); NEXT;
   OP_DOCREATE: DUP; tos = w + sizeof(cell_t) * 2; NEXT;
   OP_DODOES: DUP; tos = w + sizeof(cell_t) * 2;
@@ -264,8 +266,10 @@ const char boot[] =
 " : > ( a b -- a>b ) swap - 0< ; "
 " : = ( a b -- a!=b ) - 0= ; "
 " : <> ( a b -- a!=b ) = 0= ; "
-" : bl 32 ;   : nl 10 ; "
-" : 1+ 1 + ;   : 1- 1 - ; "
+" : bl 32 ; "
+" : nl 10 ; "
+" : 1+ 1 + ; "
+" : 1- 1 - ; "
 " : +! ( n a -- ) swap over @ + swap ! ; "
 
 // Cells 
@@ -370,7 +374,8 @@ const char boot[] =
 " : is ( xt \"name -- ) postpone to ; immediate "
 
 " : emit ( n -- ) >r rp@ 1 type rdrop ; "
-" : space bl emit ;   : cr nl emit ; "
+" : space bl emit ; "
+" : cr nl emit ; "
 
 // Numeric Output 
 " variable hld "
@@ -406,7 +411,11 @@ const char boot[] =
 " ' notfound 'notfound ! "
 
 // Examine Dictionary 
-// TODO: crashes when decompiling primitives and words containing ." and s"
+// TODO: crashes when decompiling:
+// - primitives
+// - words containing ." and s"
+// - loops/0branch
+// - empty words
 " : see. ( xt -- ) >name type space ; "
 " : see-one ( xt -- xt+1 ) "
 "    dup @ dup ['] DOLIT = if drop cell+ dup @ . else see. then cell+ ; "
@@ -443,7 +452,7 @@ const char boot[] =
 " : .s .\" < \" depth . .\" > \" depth 0 = if exit then depth 0 do sp0 i 1 + cells + @ . loop cr ; "
 
 
-" 100 ms "
+" 200 ms "
 " ok "
 ;
 
