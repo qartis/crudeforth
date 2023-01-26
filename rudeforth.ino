@@ -24,60 +24,60 @@ typedef uint64_t udcell_t;
 
 #define OPCODE_LIST \
   X("0=", ZEQUAL, tos = !tos ? -1 : 0) \
-  X("0<", ZLESS, tos = (tos|0) < 0 ? -1 : 0) \
-  X("+", PLUS, tos = (tos + *sp) | 0; --sp) \
+  X("0<", ZLESS, tos = tos < 0 ? -1 : 0) \
+  X("+", PLUS, tos = (tos + *sp); --sp) \
   X("UM/MOD", UMSMOD, UMSMOD) \
   X("*/MOD", SSMOD, SSMOD) \
   X("AND", AND, tos = tos & *sp; --sp) \
   X("OR", OR, tos = tos | *sp; --sp) \
-  X("XOR", XOR, tos = tos ^ *sp; --sp) \
+  X("XOR", XOR, tos ^= *sp; --sp) \
   X("DUP", DUP, DUP) \
-  X("SWAP", SWAP, w = tos; tos = (*sp)|0; *sp = w) \
-  X("OVER", OVER, DUP; tos = sp[-1] | 0) \
+  X("SWAP", SWAP, w = tos; tos = (*sp); *sp = w) \
+  X("OVER", OVER, DUP; tos = sp[-1]) \
   X("DROP", DROP, DROP) \
-  X("@", AT, tos = (*(cell_t *) tos)|0) \
-  X("L@", LAT, tos = (*(int32_t *) tos)|0) \
-  X("C@", CAT, tos = (*(uint8_t *) tos)|0) \
-  X("!", STORE, *(cell_t *) tos = (*sp)|0; --sp; DROP) \
-  X("L!", LSTORE, *(int32_t *) tos = (*sp)|0; --sp; DROP) \
-  X("C!", CSTORE, *(uint8_t *) tos = (*sp)|0; --sp; DROP) \
-  X("FILL", FILL, memset((void *) (sp[-1] | 0), tos | 0, (*sp | 0)); sp -= 2; DROP) \
-  X("MOVE", MOVE, memmove((void *) (sp[-1] | 0), (void *) (*sp | 0), tos | 0); sp -= 2; DROP) \
+  X("@", AT, tos = (*(cell_t *) tos)) \
+  X("L@", LAT, tos = (*(int32_t *) tos)) \
+  X("C@", CAT, tos = (*(uint8_t *) tos)) \
+  X("!", STORE, *(cell_t *) tos = (*sp); --sp; DROP) \
+  X("L!", LSTORE, *(int32_t *) tos = (*sp); --sp; DROP) \
+  X("C!", CSTORE, *(uint8_t *) tos = (*sp); --sp; DROP) \
+  X("FILL", FILL, memset((void *)sp[-1], tos, *sp); sp -= 2; DROP) \
+  X("MOVE", MOVE, memmove((void *)sp[-1], (void *)*sp, tos); sp -= 2; DROP) \
   X("SP@", SPAT, DUP; tos = (cell_t) sp) \
   X("SP!", SPSTORE, sp = (cell_t *) tos; DROP) \
   X("RP@", RPAT, DUP; tos = (cell_t) rp) \
   X("RP!", RPSTORE, rp = (cell_t *) tos; DROP) \
   X(">R", TOR, ++rp; *rp = tos; DROP) \
-  X("R>", FROMR, DUP; tos = (*rp)|0; --rp) \
-  X("R@", RAT, DUP; tos = (*rp)|0) \
+  X("R>", FROMR, DUP; tos = *rp; --rp) \
+  X("R@", RAT, DUP; tos = *rp) \
   X("EXECUTE", EXECUTE, w = tos; DROP; goto **(void **) w) \
-  X("BRANCH", BRANCH, ip = (cell_t *) (*ip | 0)) \
-  X("0BRANCH", ZBRANCH, if (!tos) ip = (cell_t *) (*ip | 0); else ++ip; DROP) \
-  X("DONEXT", DONEXT, *rp = ((*rp|0) - 1) | 0; \
-                      if ((*rp|0)) ip = (cell_t *) (*ip | 0); else (--rp, ++ip)) \
-  X("DOLIT", DOLIT, DUP; tos = (*ip | 0); ++ip) \
-  X("ALITERAL", ALITERAL, COMMA(g_sys.DOLIT_XT | 0); COMMA(tos | 0); DROP) \
+  X("BRANCH", BRANCH, ip = (cell_t *)*ip) \
+  X("0BRANCH", ZBRANCH, if (!tos) ip = (cell_t *)*ip; else ++ip; DROP) \
+  X("DONEXT", DONEXT, *rp = (*rp - 1); \
+                      if ((*rp|0)) ip = (cell_t *)*ip; else (--rp, ++ip)) \
+  X("DOLIT", DOLIT, DUP; tos = *ip; ++ip) \
+  X("ALITERAL", ALITERAL, COMMA(g_sys.DOLIT_XT); COMMA(tos); DROP) \
   X("CELL", CELL, DUP; tos = sizeof(cell_t)) \
-  X("FIND", FIND, tos = find((const char *) (*sp | 0), tos|0)|0; --sp) \
-  X("PARSE", PARSE, DUP; tos = parse(tos|0, (cell_t *) ((cell_t) sp | 0))|0) \
+  X("FIND", FIND, tos = find((const char *) (*sp), tos); --sp) \
+  X("PARSE", PARSE, DUP; tos = parse(tos, (cell_t *)sp)) \
   X("S>NUMBER?", CONVERT, \
-      tos = convert((const char *) (*sp | 0), tos|0, (cell_t *) ((cell_t) sp | 0))|0; \
+      tos = convert((const char *)*sp, tos, (cell_t *) ((cell_t) sp)); \
       if (!tos) --sp) \
-  X("CREATE", CREATE, DUP; DUP; tos = parse(32, (cell_t *) ((cell_t) sp | 0))|0; \
-                      create((const char *) (*sp | 0), tos|0, 0, && OP_DOCREATE); \
+  X("CREATE", CREATE, DUP; DUP; tos = parse(32, (cell_t *) ((cell_t)sp)); \
+                      create((const char *) (*sp), tos|0, && OP_DOCREATE); \
                          COMMA(0); --sp; DROP) \
-  X("DOES>", DOES, DOES((cell_t *) ((cell_t) ip|0)); ip = (cell_t *) (*rp | 0); --rp) \
+  X("DOES>", DOES, DOES((cell_t *) ((cell_t) ip)); ip = (cell_t *)*rp; --rp) \
   X("IMMEDIATE", IMMEDIATE, IMMEDIATE()) \
   X("'SYS", SYS, DUP; tos = (cell_t) &g_sys) \
-  X(":", COLON, DUP; DUP; tos = parse(32, (cell_t *) ((cell_t) sp | 0))|0; \
-                create((const char *) (*sp | 0), tos|0, 0, && OP_DOCOLON); \
+  X(":", COLON, DUP; DUP; tos = parse(32, (cell_t *)sp); \
+                create((const char *)*sp, tos, && OP_DOCOLON); \
                    g_sys.state = -1; --sp; DROP) \
   X("EVALUATE1", EVALUATE1, \
-      DUP; sp = (cell_t *) ((cell_t) evaluate1((cell_t *) ((cell_t) sp | 0))|0); \
-      w = (*sp | 0); --sp; DROP; \
+      DUP; sp = (cell_t *)evaluate1((cell_t *)sp); \
+      w = *sp; --sp; DROP; \
       if (w) goto **(void **) w) \
-  X("EXIT", EXIT, ip = (cell_t *) (*rp | 0); --rp) \
-  X(";", SEMICOLON, COMMA(g_sys.DOEXIT_XT | 0); g_sys.state = 0) \
+  X("EXIT", EXIT, ip = (cell_t *)*rp; --rp) \
+  X(";", SEMICOLON, COMMA(g_sys.DOEXIT_XT); g_sys.state = 0) \
 
 
 #define PLATFORM_OPCODE_LIST \
@@ -153,12 +153,12 @@ static cell_t find(const char *name, cell_t len) {
    [ words ]
 */
 
-static void create(const char *name, cell_t length, cell_t flags, void *op) {
+static void create(const char *name, cell_t length, void *op) {
   memcpy(g_sys.here, name, length);  // name
   g_sys.here += CELL_LEN(length);
   *g_sys.here++ = length;  // length
   *g_sys.here++ = (cell_t) g_sys.latest;  // link
-  *g_sys.here++ = flags;  // flags
+  *g_sys.here++ = 0;  // flags
   g_sys.latest = g_sys.here;
   *g_sys.here++ = (cell_t) op;  // code
 }
@@ -218,7 +218,7 @@ static void ueforth(void *here, const char *src, cell_t src_len) {
   register cell_t tos = 0, *ip, w;
   dcell_t d;
   udcell_t ud;
-#define X(name, op, code) create(name, sizeof(name) - 1, name[0] == ';', && OP_ ## op);
+#define X(name, op, code) create(name, sizeof(name) - 1, && OP_ ## op);
   PLATFORM_OPCODE_LIST
   OPCODE_LIST
 #undef X
