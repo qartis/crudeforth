@@ -1,19 +1,20 @@
 #include <inttypes.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
+
+#define HEAP_SIZE (100 * 1024)
+#define STACK_SIZE 512
 
 typedef intptr_t cell_t;
 typedef int64_t dcell_t;
 typedef uint64_t udcell_t;
 
 
-#define PUSH DUP; tos =
 #define DUP *++sp = tos
 #define DROP tos = *sp--
-#define COMMA(n) *g_sys.heap++ = (n)
-#define IMMEDIATE() g_sys.last[-1] |= 1
-#define DOES(ip) *g_sys.last = (cell_t) && OP_DODOES; g_sys.last[1] = (cell_t) ip
+#define COMMA(n) *g_sys.here++ = (n)
+#define IMMEDIATE() g_sys.latest[-1] |= 1
+#define DOES(ip) *g_sys.latest = (cell_t) && OP_DODOES; g_sys.latest[1] = (cell_t) ip
 #define UMSMOD ud = *(udcell_t *) &sp[-1]; \
                --sp; *sp = (cell_t) (ud % tos); \
                tos = (cell_t) (ud / tos)
@@ -79,21 +80,6 @@ typedef uint64_t udcell_t;
   X(";", SEMICOLON, COMMA(g_sys.DOEXIT_XT | 0); g_sys.state = 0) \
 
 
-
-#include "SPIFFS.h"
-#include <WiFi.h>
-#include <WebServer.h>
-
-#include <errno.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/select.h>
-
-# define HEAP_SIZE (100 * 1024)
-# define STACK_SIZE 512
-
 #define PLATFORM_OPCODE_LIST \
   /* Serial */ \
   X("Serial.begin", SERIAL_BEGIN, Serial.begin(tos); DROP) \
@@ -101,94 +87,20 @@ typedef uint64_t udcell_t;
   X("Serial.available", SERIAL_AVAILABLE, DUP; tos = Serial.available()) \
   X("Serial.readBytes", SERIAL_READ_BYTES, tos = Serial.readBytes((uint8_t *) *sp, tos); --sp) \
   X("Serial.write", SERIAL_WRITE, tos = Serial.write((const uint8_t *) *sp, tos); --sp) \
-  /* Pins and PWM */ \
-  X("pinMode", PIN_MODE, pinMode(*sp, tos); --sp; DROP) \
-  X("digitalWrite", DIGITAL_WRITE, digitalWrite(*sp, tos); --sp; DROP) \
-  X("analogRead", ANALOG_READ, tos = (cell_t) analogRead(tos)) \
-  X("ledcSetup", LEDC_SETUP, \
-      tos = (cell_t) (1000000 * ledcSetup(sp[-1], *sp / 1000.0, tos)); sp -= 2) \
-  X("ledcAttachPin", ATTACH_PIN, ledcAttachPin(*sp, tos); --sp; DROP) \
-  X("ledcDetachPin", DETACH_PIN, ledcDetachPin(tos); DROP) \
-  X("ledcRead", LEDC_READ, tos = (cell_t) ledcRead(tos)) \
-  X("ledcReadFreq", LEDC_READ_FREQ, tos = (cell_t) (1000000 * ledcReadFreq(tos))) \
-  X("ledcWrite", LEDC_WRITE, ledcWrite(*sp, tos); --sp; DROP) \
-  X("ledcWriteTone", LEDC_WRITE_TONE, \
-      tos = (cell_t) (1000000 * ledcWriteTone(*sp, tos / 1000.0)); --sp) \
-  X("ledcWriteNote", LEDC_WRITE_NOTE, \
-      tos = (cell_t) (1000000 * ledcWriteNote(sp[-1], (note_t) *sp, tos)); sp -=2) \
-  X("MS", MS, delay(tos); DROP) \
-  X("TERMINATE", TERMINATE, exit(tos)) \
-  /* File words */ \
-  X("R/O", R_O, *++sp = O_RDONLY) \
-  X("R/W", R_W, *++sp = O_RDWR) \
-  X("W/O", W_O, *++sp = O_WRONLY) \
-  X("BIN", BIN, ) \
-  X("CLOSE-FILE", CLOSE_FILE, tos = close(tos); tos = tos ? errno : 0) \
-  X("OPEN-FILE", OPEN_FILE, cell_t mode = tos; DROP; cell_t len = tos; DROP; \
-    memcpy(filename, (void *) tos, len); filename[len] = 0; \
-    tos = open(filename, mode, 0777); PUSH tos < 0 ? errno : 0) \
-  X("CREATE-FILE", CREATE_FILE, cell_t mode = tos; DROP; cell_t len = tos; DROP; \
-    memcpy(filename, (void *) tos, len); filename[len] = 0; \
-    tos = open(filename, mode | O_CREAT | O_TRUNC); PUSH tos < 0 ? errno : 0) \
-  X("DELETE-FILE", DELETE_FILE, cell_t len = tos; DROP; \
-    memcpy(filename, (void *) tos, len); filename[len] = 0; \
-    tos = unlink(filename); tos = tos ? errno : 0) \
-  X("WRITE-FILE", WRITE_FILE, cell_t fd = tos; DROP; cell_t len = tos; DROP; \
-    tos = write(fd, (void *) tos, len); tos = tos != len ? errno : 0) \
-  X("READ-FILE", READ_FILE, cell_t fd = tos; DROP; cell_t len = tos; DROP; \
-    tos = read(fd, (void *) tos, len); PUSH tos != len ? errno : 0) \
-  X("FILE-POSITION", FILE_POSITION, \
-    tos = (cell_t) lseek(tos, 0, SEEK_CUR); PUSH tos < 0 ? errno : 0) \
-  X("REPOSITION-FILE", REPOSITION_FILE, cell_t fd = tos; DROP; \
-    tos = (cell_t) lseek(fd, tos, SEEK_SET); tos = tos < 0 ? errno : 0) \
-  X("FILE-SIZE", FILE_SIZE, struct stat st; w = fstat(tos, &st); \
-    tos = (cell_t) st.st_size; PUSH w < 0 ? errno : 0) \
-  /* WiFi */ \
-  X("WiFi.config", WIFI_CONFIG, \
-      WiFi.config(ToIP(sp[-1]), ToIP(*sp), ToIP(tos)); sp -= 2; DROP) \
-  X("WiFi.begin", WIFI_BEGIN, \
-      WiFi.begin((const char *) *sp, (const char *) tos); --sp; DROP) \
-  X("WiFi.disconnect", WIFI_DISCONNECT, WiFi.disconnect()) \
-  X("WiFi.status", WIFI_STATUS, DUP; tos = WiFi.status()) \
-  X("WiFi.macAddress", WIFI_MAC_ADDRESS, WiFi.macAddress((uint8_t *) tos); DROP) \
-  X("WiFi.localIP", WIFI_LOCAL_IPS, DUP; tos = FromIP(WiFi.localIP())) \
-  /* SPIFFS */ \
-  X("SPIFFS.begin", SPIFFS_BEGIN, tos = SPIFFS.begin(tos)) \
-  X("SPIFFS.end", SPIFFS_END, SPIFFS.end()) \
-  X("SPIFFS.format", SPIFFS_FORMAT, DUP; tos = SPIFFS.format()) \
-  X("SPIFFS.totalBytes", SPIFFS_TOTAL_BYTES, DUP; tos = SPIFFS.totalBytes()) \
-  X("SPIFFS.usedBytes", SPIFFS_USED_BYTES, DUP; tos = SPIFFS.usedBytes()) \
-  /* WebServer */ \
-  X("WebServer.new", WEBSERVER_NEW, DUP; tos = (cell_t) new WebServer(tos)) \
-  X("WebServer.delete", WEBSERVER_DELETE, delete (WebServer *) tos; DROP) \
-  X("WebServer.begin", WEBSERVER_BEGIN, \
-      WebServer *ws = (WebServer *) tos; DROP; ws->begin(tos); DROP) \
-  X("WebServer.stop", WEBSERVER_STOP, \
-      WebServer *ws = (WebServer *) tos; DROP; ws->stop()) \
+  X("ms", MS, delay(tos); DROP) \
+  X("bye", BYE, exit(tos)) \
 
-// TODO: Why doesn't ftruncate exist?
-//  X("RESIZE-FILE", RESIZE_FILE, cell_t fd = tos; DROP; \
-//    tos = ftruncate(fd, tos); tos = tos < 0 ? errno : 0) \
-
-static char filename[PATH_MAX];
-
-#define PRINT_ERRORS 0
 
 #define NEXT w = *ip++; goto **(void **) w
 #define CELL_LEN(n) (((n) + sizeof(cell_t) - 1) / sizeof(cell_t))
 #define FIND(name) find(name, sizeof(name) - 1)
 #define LOWER(ch) ((ch) & 0x5F)
 
-#if PRINT_ERRORS
-#include <unistd.h>
-#endif
 
 static struct {
   const char *tib;
   cell_t ntib, tin, state, base;
-  cell_t *heap, *last, notfound;
-  int argc;
-  char **argv;
+  cell_t *here, *latest, notfound;
   cell_t DOLIT_XT, DOEXIT_XT;
 } g_sys;
 
@@ -219,7 +131,7 @@ static cell_t same(const char *a, const char *b, cell_t len) {
 }
 
 static cell_t find(const char *name, cell_t len) {
-  cell_t *pos = g_sys.last;
+  cell_t *pos = g_sys.latest;
   cell_t clen = CELL_LEN(len);
   while (pos) {
     if (len == pos[-3] &&
@@ -232,13 +144,13 @@ static cell_t find(const char *name, cell_t len) {
 }
 
 static void create(const char *name, cell_t length, cell_t flags, void *op) {
-  memcpy(g_sys.heap, name, length);  // name
-  g_sys.heap += CELL_LEN(length);
-  *g_sys.heap++ = length;  // length
-  *g_sys.heap++ = (cell_t) g_sys.last;  // link
-  *g_sys.heap++ = flags;  // flags
-  g_sys.last = g_sys.heap;
-  *g_sys.heap++ = (cell_t) op;  // code
+  memcpy(g_sys.here, name, length);  // name
+  g_sys.here += CELL_LEN(length);
+  *g_sys.here++ = length;  // length
+  *g_sys.here++ = (cell_t) g_sys.latest;  // link
+  *g_sys.here++ = flags;  // flags
+  g_sys.latest = g_sys.here;
+  *g_sys.here++ = (cell_t) op;  // code
 }
 
 static char spacefilter(char ch) {
@@ -263,7 +175,7 @@ static cell_t *evaluate1(cell_t *sp) {
   cell_t xt = find((const char *) name, len);
   if (xt) {
     if (g_sys.state && !(((cell_t *) xt)[-1] & 1)) {  // bit 0 of flags is immediate
-      *g_sys.heap++ = xt;
+      *g_sys.here++ = xt;
     } else {
       call = xt;
     }
@@ -272,15 +184,12 @@ static cell_t *evaluate1(cell_t *sp) {
     cell_t ok = convert((const char *) name, len, &n);
     if (ok) {
       if (g_sys.state) {
-        *g_sys.heap++ = g_sys.DOLIT_XT;
-        *g_sys.heap++ = n;
+        *g_sys.here++ = g_sys.DOLIT_XT;
+        *g_sys.here++ = n;
       } else {
         *++sp = n;
       }
     } else {
-#if PRINT_ERRORS
-      write(2, (void *) name, len);
-#endif
       *++sp = name;
       *++sp = len;
       *++sp = -1;
@@ -291,12 +200,11 @@ static cell_t *evaluate1(cell_t *sp) {
   return sp;
 }
 
-static void ueforth(int argc, char *argv[], void *heap,
-                    const char *src, cell_t src_len) {
+static void ueforth(void *here, const char *src, cell_t src_len) {
   memset(&g_sys, 0, sizeof(g_sys));
-  g_sys.heap = (cell_t *) heap;
-  register cell_t *sp = g_sys.heap; g_sys.heap += STACK_SIZE;
-  register cell_t *rp = g_sys.heap; g_sys.heap += STACK_SIZE;
+  g_sys.here = (cell_t *) here;
+  register cell_t *sp = g_sys.here; g_sys.here += STACK_SIZE;
+  register cell_t *rp = g_sys.here; g_sys.here += STACK_SIZE;
   register cell_t tos = 0, *ip, w;
   dcell_t d;
   udcell_t ud;
@@ -304,16 +212,14 @@ static void ueforth(int argc, char *argv[], void *heap,
   PLATFORM_OPCODE_LIST
   OPCODE_LIST
 #undef X
-  g_sys.last[-1] = 1;  // Make ; IMMEDIATE
+  g_sys.latest[-1] = 1;  // Make ; IMMEDIATE
   g_sys.DOLIT_XT = FIND("DOLIT");
   g_sys.DOEXIT_XT = FIND("EXIT");
   g_sys.notfound = FIND("DROP");
-  ip = g_sys.heap;
-  *g_sys.heap++ = FIND("EVALUATE1");
-  *g_sys.heap++ = FIND("BRANCH");
-  *g_sys.heap++ = (cell_t) ip;
-  g_sys.argc = argc;
-  g_sys.argv = argv;
+  ip = g_sys.here;
+  *g_sys.here++ = FIND("EVALUATE1");
+  *g_sys.here++ = FIND("BRANCH");
+  *g_sys.here++ = (cell_t) ip;
   g_sys.base = 10;
   g_sys.tib = src;
   g_sys.ntib = src_len;
@@ -330,8 +236,6 @@ static void ueforth(int argc, char *argv[], void *heap,
 
 const char boot[] =
 " : (   41 parse drop drop ; immediate "
-
-// Useful Basic Compound Words 
 " : 2drop ( n n -- ) drop drop ; "
 " : 2dup ( a b -- a b a b ) over over ; "
 " : nip ( a b -- b ) swap drop ; "
@@ -352,8 +256,6 @@ const char boot[] =
 " : <> ( a b -- a!=b ) = 0= ; "
 " : bl 32 ;   : nl 10 ; "
 " : 1+ 1 + ;   : 1- 1 - ; "
-" : 2* 2 * ;   : 2/ 2 / ; "
-" : 4* 4 * ;   : 4/ 4 / ; "
 " : +! ( n a -- ) swap over @ + swap ! ; "
 
 // Cells 
@@ -367,15 +269,13 @@ const char boot[] =
 " : >in ( -- a ) 'sys 2 cells + ; "
 " : state ( -- a ) 'sys 3 cells + ; "
 " : base ( -- a ) 'sys 4 cells + ; "
-" : 'heap ( -- a ) 'sys 5 cells + ; "
-" : last ( -- a ) 'sys 6 cells + ; "
+" : 'here ( -- a ) 'sys 5 cells + ; "
+" : latest ( -- a ) 'sys 6 cells + ; "
 " : 'notfound ( -- a ) 'sys 7 cells + ; "
-" : 'argc ( -- a ) 'sys 8 cells + ; "
-" : 'argv ( -- a ) 'sys 9 cells + ; "
 
 // Dictionary 
-" : here ( -- a ) 'heap @ ; "
-" : allot ( n -- ) 'heap +! ; "
+" : here ( -- a ) 'here @ ; "
+" : allot ( n -- ) 'here +! ; "
 " : aligned ( a -- a ) cell 1 - dup >r + r> invert and ; "
 " : align   here aligned here - allot ; "
 " : , ( n --  ) here ! cell allot ; "
@@ -459,10 +359,12 @@ const char boot[] =
 " : defer ( \"name\" -- ) create 0 , does> @ dup 0= throw execute ; "
 " : is ( xt \"name -- ) postpone to ; immediate "
 
-// Defer I/O to platform specific 
-" defer type "
-" defer key "
-" defer bye "
+" : type ( a n -- ) Serial.write drop ; "
+" : key? ( -- n ) Serial.available ; "
+" : key ( -- n ) "
+"    begin Serial.available until 0 >r rp@ 1 Serial.readBytes drop r> ; "
+
+
 " : emit ( n -- ) >r rp@ 1 type rdrop ; "
 " : space bl emit ;   : cr nl emit ; "
 
@@ -478,7 +380,7 @@ const char boot[] =
 " : sign ( n -- ) 0< if 45 hold then ; "
 " : #> ( w -- b u ) drop hld @ pad over - ; "
 " : str ( n -- b u ) dup >r abs <# #s r> sign #> ; "
-" : hex ( -- ) 16 base ! ;   : octal ( -- ) 8 base ! ; "
+" : hex ( -- ) 16 base ! ; "
 " : decimal ( -- ) 10 base ! ; "
 " : u. ( u -- ) <# #s #> type space ; "
 " : . ( w -- ) base @ 10 xor if u. exit then str type space ; "
@@ -506,7 +408,7 @@ const char boot[] =
 " : exit= ( xt -- ) ['] exit = ; "
 " : see-loop   >:body begin see-one dup @ exit= until ; "
 " : see   cr ['] : see.  ' dup see.  space see-loop drop  ['] ; see.  cr ; "
-" : words   last @ begin dup see. >link dup 0= until drop cr ; "
+" : words   latest @ begin dup see. >link dup 0= until drop cr ; "
 
 // Examine Memory 
 " : dump ( a n -- ) "
@@ -532,46 +434,18 @@ const char boot[] =
 "           if 0 state ! sp0 sp! rp0 rp! .\" ERROR\" cr then "
 "           prompt refill drop again ; "
 " : ok   .\" uEForth\" cr prompt refill drop query ; "
-// Set up Basic I/O 
-" : arduino-bye   0 terminate ; "
-" ' arduino-bye is bye "
-" : arduino-type ( a n -- ) Serial.write drop ; "
-" ' arduino-type is type "
-" : key? ( -- n ) Serial.available ; "
-" : arduino-key ( -- n ) "
-"    begin Serial.available until 0 >r rp@ 1 Serial.readBytes drop r> ; "
-" ' arduino-key is key "
+//" : bounds over + swap ; "
+" : .s .\" < \" depth . .\" > \" depth 0 = if exit then depth 0 do sp0 i 1 + cells + @ . loop cr ; "
 
-// Map Arduino / ESP32 things to shorter names. 
-" : pin ( n n -- ) swap digitalWrite ; "
-" : adc ( n -- n ) analogRead ; "
-" : duty ( n n -- ) 255 min 8191 255 */ ledcWrite ; "
-" : freq ( n n -- ) 1000 * 13 ledcSetup drop ; "
-" : tone ( n n -- ) 1000 * ledcWriteTone drop ; "
-
-// Startup Serial 
 " 115200 Serial.begin "
 " 100 ms "
 " ok "
 ;
 
 
-static IPAddress ToIP(cell_t ip) {
-  return IPAddress(ip & 0xff, ((ip >> 8) & 0xff), ((ip >> 16) & 0xff), ((ip >> 24) & 0xff));
-}
-
-static cell_t FromIP(IPAddress ip) {
-  cell_t ret = 0;
-  ret = (ret << 8) | ip[3];
-  ret = (ret << 8) | ip[2];
-  ret = (ret << 8) | ip[1];
-  ret = (ret << 8) | ip[0];
-  return ret;
-}
-
 void setup() {
   cell_t *heap = (cell_t *) malloc(HEAP_SIZE);
-  ueforth(0, 0, heap, boot, sizeof(boot));
+  ueforth(heap, boot, sizeof(boot));
 }
 
 void loop() {
