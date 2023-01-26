@@ -2,14 +2,14 @@
 #include <stdint.h>
 #include <string.h>
 
-#define HEAP_SIZE (100 * 1024)
-#define STACK_SIZE 512
-#define FLAG_IMMEDIATE 1
-
 typedef intptr_t cell_t;
 typedef int64_t dcell_t;
 typedef uint64_t udcell_t;
 
+
+#define HEAP_SIZE (100 * 1024)
+#define STACK_SIZE 512
+#define FLAG_IMMEDIATE 1
 
 #define DUP *++sp = tos
 #define DROP tos = *sp--
@@ -26,22 +26,22 @@ typedef uint64_t udcell_t;
 #define OPCODE_LIST \
   X("0=", ZEQUAL, tos = !tos ? -1 : 0) \
   X("0<", ZLESS, tos = tos < 0 ? -1 : 0) \
-  X("+", PLUS, tos = (tos + *sp); --sp) \
+  X("+", PLUS, tos += *sp; --sp) \
   X("UM/MOD", UMSMOD, UMSMOD) \
   X("*/MOD", SSMOD, SSMOD) \
-  X("AND", AND, tos = tos & *sp; --sp) \
-  X("OR", OR, tos = tos | *sp; --sp) \
+  X("AND", AND, tos &= *sp; --sp) \
+  X("OR", OR, tos |= *sp; --sp) \
   X("XOR", XOR, tos ^= *sp; --sp) \
   X("DUP", DUP, DUP) \
-  X("SWAP", SWAP, w = tos; tos = (*sp); *sp = w) \
+  X("SWAP", SWAP, w = tos; tos = *sp; *sp = w) \
   X("OVER", OVER, DUP; tos = sp[-1]) \
   X("DROP", DROP, DROP) \
-  X("@", AT, tos = (*(cell_t *) tos)) \
-  X("L@", LAT, tos = (*(int32_t *) tos)) \
-  X("C@", CAT, tos = (*(uint8_t *) tos)) \
-  X("!", STORE, *(cell_t *) tos = (*sp); --sp; DROP) \
-  X("L!", LSTORE, *(int32_t *) tos = (*sp); --sp; DROP) \
-  X("C!", CSTORE, *(uint8_t *) tos = (*sp); --sp; DROP) \
+  X("@", AT, tos = *(cell_t *)tos) \
+  X("L@", LAT, tos = *(int32_t *)tos) \
+  X("C@", CAT, tos = *(uint8_t *)tos) \
+  X("!", STORE, *(cell_t *)tos = *sp; --sp; DROP) \
+  X("L!", LSTORE, *(int32_t *)tos = *sp; --sp; DROP) \
+  X("C!", CSTORE, *(uint8_t *)tos = *sp; --sp; DROP) \
   X("FILL", FILL, memset((void *)sp[-1], tos, *sp); sp -= 2; DROP) \
   X("MOVE", MOVE, memmove((void *)sp[-1], (void *)*sp, tos); sp -= 2; DROP) \
   X("SP@", SPAT, DUP; tos = (cell_t) sp) \
@@ -51,32 +51,32 @@ typedef uint64_t udcell_t;
   X(">R", TOR, ++rp; *rp = tos; DROP) \
   X("R>", FROMR, DUP; tos = *rp; --rp) \
   X("R@", RAT, DUP; tos = *rp) \
-  X("EXECUTE", EXECUTE, w = tos; DROP; goto **(void **) w) \
+  X("EXECUTE", EXECUTE, w = tos; DROP; goto **(void **)w) \
   X("BRANCH", BRANCH, ip = (cell_t *)*ip) \
   X("0BRANCH", ZBRANCH, if (!tos) ip = (cell_t *)*ip; else ++ip; DROP) \
   X("DONEXT", DONEXT, *rp = (*rp - 1); \
-                      if ((*rp|0)) ip = (cell_t *)*ip; else (--rp, ++ip)) \
+                      if (*rp) ip = (cell_t *)*ip; else (--rp, ++ip)) \
   X("DOLIT", DOLIT, DUP; tos = *ip; ++ip) \
   X("ALITERAL", ALITERAL, COMMA(g_sys.DOLIT_XT); COMMA(tos); DROP) \
   X("CELL", CELL, DUP; tos = sizeof(cell_t)) \
-  X("FIND", FIND, tos = find((const char *) (*sp), tos); --sp) \
+  X("FIND", FIND, tos = find((const char *)*sp, tos); --sp) \
   X("PARSE", PARSE, DUP; tos = parse(tos, (cell_t *)sp)) \
   X("S>NUMBER?", CONVERT, \
-      tos = convert((const char *)*sp, tos, (cell_t *) ((cell_t) sp)); \
+      tos = convert((const char *)*sp, tos, (cell_t *)sp); \
       if (!tos) --sp) \
-  X("CREATE", CREATE, DUP; DUP; tos = parse(32, (cell_t *) ((cell_t)sp)); \
-                      create((const char *) (*sp), tos|0, && OP_DOCREATE); \
+  X("CREATE", CREATE, DUP; DUP; tos = parse(32, (cell_t *)sp); \
+                      create((const char *)*sp, tos, && OP_DOCREATE); \
                          COMMA(0); --sp; DROP) \
-  X("DOES>", DOES, DOES((cell_t *) ((cell_t) ip)); ip = (cell_t *)*rp; --rp) \
+  X("DOES>", DOES, DOES((cell_t *)ip); ip = (cell_t *)*rp; --rp) \
   X("IMMEDIATE", IMMEDIATE, IMMEDIATE()) \
-  X("'SYS", SYS, DUP; tos = (cell_t) &g_sys) \
+  X("'SYS", SYS, DUP; tos = (cell_t)&g_sys) \
   X(":", COLON, DUP; DUP; tos = parse(32, (cell_t *)sp); \
                 create((const char *)*sp, tos, && OP_DOCOLON); \
                    g_sys.state = -1; --sp; DROP) \
   X("EVALUATE1", EVALUATE1, \
       DUP; sp = (cell_t *)evaluate1((cell_t *)sp); \
       w = *sp; --sp; DROP; \
-      if (w) goto **(void **) w) \
+      if (w) goto **(void **)w) \
   X("EXIT", EXIT, ip = (cell_t *)*rp; --rp) \
   X("key", KEY, while(!Serial.available()) {} DUP; tos = Serial.read()) \
   X("key?", KEY_Q, DUP; tos = Serial.available()) \
