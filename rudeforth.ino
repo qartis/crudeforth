@@ -143,6 +143,19 @@ static cell_t find(const char *name, cell_t len) {
   return 0;
 }
 
+/* dict format:
+   [ name ]
+   [ name ]
+   [ name ]
+   [ name len ]
+   [ *prev cfa ]
+   [ flags ]
+   [ cfa ]  <- latest, "xt"
+   [ words ]
+   [ words ]
+   [ words ]
+*/
+
 static void create(const char *name, cell_t length, cell_t flags, void *op) {
   memcpy(g_sys.here, name, length);  // name
   g_sys.here += CELL_LEN(length);
