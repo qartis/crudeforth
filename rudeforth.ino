@@ -26,8 +26,6 @@ typedef uint64_t udcell_t;
 #define FIND(name) find(name, sizeof(name) - 1)
 #define LOWER(ch) ((ch) & 0x5F)
 
-
-
 #define OPCODE_LIST \
   X("'DOCOL", TICKDOCOL, DUP; tos = (cell_t)&&OP_DOCOLON) \
   X("0=", ZEQUAL, tos = !tos ? -1 : 0) \
@@ -53,7 +51,7 @@ typedef uint64_t udcell_t;
   X("RP!", RPSTORE, rp = (cell_t *) tos; DROP) \
   X(">R", TOR, ++rp; *rp = tos; DROP) \
   X(",", COMMA_TOKEN, COMMA(tos); DROP) \
-  X("'", TICK, DUP; tos = parse(' ', (cell_t *)sp); tos = find((const char *)*sp, tos)) \
+  X("'", TICK, DUP; DUP; tos = parse(' ', (cell_t *)sp); tos = find((const char *)*sp, tos); *sp = tos; DROP) \
   X("R>", FROMR, DUP; tos = *rp; --rp) \
   X("R@", RAT, DUP; tos = *rp) \
   X("EXECUTE", EXECUTE, w = tos; DROP; goto **(void **)w) \
@@ -82,7 +80,10 @@ typedef uint64_t udcell_t;
   X("type", TYPE, Serial.write((const uint8_t *) *sp, tos); --sp; DROP) \
   X("ms", MS, delay(tos); DROP) \
   X("bye", BYE, exit(tos)) \
-  X("DD", DD, for(cell_t *start = here + STACK_SIZE + STACK_SIZE; start < g_sys.here; start++) { printf("%08x: %08x\n", start, *start); } ) \
+  X("DD", DD, for(cell_t *start = (cell_t *)here + STACK_SIZE + STACK_SIZE; start < g_sys.here; start++) { printf("%08x: %08x\n", start, *start); } ) \
+  X("ledcSetup", LEDCSETUP, sp[-1] = ledcSetup(sp[-1], sp[0], tos); DROP; DROP) \
+  X("ledcAttachPin", LEDCATTACHPIN, ledcAttachPin(*sp, tos); DROP; DROP) \
+  X("ledcWrite", LEDCWRITE, ledcWrite(*sp, tos); DROP; DROP) \
 
 static struct {
   const char *tib;
@@ -121,8 +122,7 @@ static cell_t find(const char *name, cell_t len) {
   cell_t *pos = g_sys.latest;
   cell_t clen = CELL_LEN(len);
   while (pos) {
-    if (len == pos[-3] &&
-        same(name, (const char *) &pos[-3 - clen], len) == 0) {
+    if (len == pos[-3] && same(name, (const char *) &pos[-3 - clen], len) == 0) {
       return (cell_t) pos;
     }
     pos = (cell_t *) pos[-2];  // Follow link
@@ -144,7 +144,6 @@ static cell_t find(const char *name, cell_t len) {
 */
 
 static void create(const char *name, cell_t length, void *op) {
-  printf("create(%.*s)\n", length, name);
   memcpy(g_sys.here, name, length);  // name
   g_sys.here += CELL_LEN(length);
   COMMA(length);  // length
@@ -212,8 +211,6 @@ static void ueforth(void *here, const char *src, cell_t src_len) {
 #define X(name, op, code) create(name, sizeof(name) - 1, && OP_ ## op);
   OPCODE_LIST
 #undef X
-
-  IMMEDIATE(); // Make ; IMMEDIATE
 
   g_sys.DOLIT_XT = FIND("DOLIT");
   g_sys.NOTFOUND_XT = FIND("DROP");
@@ -426,7 +423,7 @@ const char boot[] =
 " : see-loop   >:body begin dup @ exit= invert while see-one repeat ; "
 " : see-immediate?   immediate? if .\"  immediate\" then ; "
 " : see-:   ['] : see.  dup see. space dup see-loop drop  ['] ; see.  see-immediate? ; "
-" : see   ' dup builtin? if dup see. ." is builtin" else see-: then cr ; "
+" : see   ' dup builtin? if dup see. .\" is builtin\" else see-: then cr ; "
 " : words   latest begin dup see. >link dup 0= until drop cr ; "
 
 // Examine Memory 
@@ -454,6 +451,10 @@ const char boot[] =
 " : ok   .\" uEForth\" cr prompt refill drop query ; "
 " : .s .\" < \" depth . .\" > \" depth 0 = if exit then depth 0 do sp0 i 1 + cells + @ . loop cr ; "
 " : forget  ' dup >name drop 'here ! >link 'latest ! ; "
+
+" 0 5000 12 ledcSetup "
+" 4 0 ledcattachpin "
+" 0 3 ledcwrite "
 
 " 200 ms "
 " ok "
