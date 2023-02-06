@@ -84,6 +84,12 @@ typedef uint64_t udcell_t;
   X("ledcSetup", LEDCSETUP, sp[-1] = ledcSetup(sp[-1], sp[0], tos); DROP; DROP) \
   X("ledcAttachPin", LEDCATTACHPIN, ledcAttachPin(*sp, tos); DROP; DROP) \
   X("ledcWrite", LEDCWRITE, ledcWrite(*sp, tos); DROP; DROP) \
+  X("WiFi.begin", WIFIBEGIN, *sp = (cell_t)WiFi.begin(*(const char **)sp, (const char *)tos); DROP) \
+  X("WiFi.status", WIFISTATUS, DUP; tos = WiFi.status()) \
+  X("WiFi.localIP", WIFILOCALIP, DUP; tos = FromIP(WiFi.localIP())) \
+  X("server.begin", SERVERBEGIN, server.begin(tos); DROP) \
+  X("pinMode", PINMODE, pinMode((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
+  X("digitalWrite", DIGITALWRITE, digitalWrite((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
 
 static struct {
   const char *tib;
@@ -91,6 +97,20 @@ static struct {
   cell_t *here, *latest;
   cell_t NOTFOUND_XT, DOLIT_XT;
 } g_sys;
+
+#include <WiFi.h>
+#include <WiFiClient.h>
+
+cell_t FromIP(IPAddress ip) {
+  cell_t ret = 0;
+  ret = (ret << 8) | ip[3];
+  ret = (ret << 8) | ip[2];
+  ret = (ret << 8) | ip[1];
+  ret = (ret << 8) | ip[0];
+  return ret;
+}
+
+WiFiServer server(80);
 
 static cell_t convert(const char *pos, cell_t n, cell_t *ret) {
   *ret = 0;
@@ -452,9 +472,104 @@ const char boot[] =
 " : .s .\" < \" depth . .\" > \" depth 0 = if exit then depth 0 do sp0 i 1 + cells + @ . loop cr ; "
 " : forget  ' dup >name drop 'here ! >link 'latest ! ; "
 
-" 0 5000 12 ledcSetup "
-" 4 0 ledcattachpin "
-" 0 3 ledcwrite "
+//" 4 constant led "
+//" 0 constant pwmchan "
+//" 12 constant 12bit "
+//" 19569 constant pwmfreq "
+//" pwmchan pwmfreq 12bit ledcSetup "
+//" led pwmchan ledcattachpin "
+//" : setled pwmchan swap ledcwrite ; "
+//" 2 setled "
+
+/*
+1 constant SOCK_STREAM
+2 constant SOCK_DGRAM
+3 constant SOCK_RAW
+
+2 constant AF_INET
+16 constant sizeof(sockaddr_in)
+1 constant SOL_SOCKET
+2 constant SO_REUSEADDR
+
+: bs, ( n -- ) dup 8 rshift c, c, ;
+: s, ( n -- ) dup c, 8 rshift c, ;
+: l, ( n -- ) dup s, 16 rshift s, ;
+: sockaddr   create 16 c, AF_INET c, 0 bs, 0 l, 0 l, 0 l, ;
+: ->port@ ( a -- n ) 2 + >r r@ c@ 8 lshift r> 1+ c@ + ;
+: ->port! ( n a --  ) 2 + >r dup 8 rshift r@ c! r> 1+ c! ;
+: ->addr@ ( a -- n ) 4 + ul@ ;
+: ->addr! ( n a --  ) 4 + l! ;
+: ->h_addr ( hostent -- n ) 2 cells + 8 + @ @ ul@ ;
+: ip# ( n -- n ) dup 255 and n. [char] . emit 8 rshift ;
+: ip. ( n -- ) ip# ip# ip# 255 and n. ;
+
+
+
+-1 value sockfd   -1 value clientfd
+sockaddr telnet-port   sockaddr client   variable client-len
+
+defer broker
+
+: telnet-emit ( ch -- ) >r rp@ 1 clientfd write-file rdrop if broker then ;
+: telnet-type ( a n -- ) for aft dup c@ telnet-emit 1+ then next drop ;
+: telnet-key ( -- n ) 0 >r rp@ 1 clientfd read-file swap 1 <> or if rdrop broker then r> ;
+
+: connection ( n -- )
+  dup 0< if drop exit then to clientfd
+  0 echo !
+  ['] telnet-key is key
+  ['] telnet-type is type quit ;
+
+: wait-for-connection
+  begin
+    sockfd client client-len sockaccept
+    dup 0 >= if exit else drop then
+  again
+;
+
+: broker-connection
+  rp0 rp! sp0 sp!
+  begin
+    ['] default-key is key   ['] default-type is type
+    -1 echo !
+    ." Listening on port " telnet-port ->port@ . cr
+    wait-for-connection
+    ." Connected: " dup . cr connection
+  again ;
+' broker-connection is broker
+
+: server ( port -- )
+  telnet-port ->port!
+  AF_INET SOCK_STREAM 0 socket to sockfd
+  sockfd non-block throw
+  sockfd telnet-port sizeof(sockaddr_in) bind throw
+  sockfd 1 listen throw   broker ;
+*/
+" 2 constant ena "
+" 0 constant in1 "
+" 4 constant in2 "
+" 16 constant in3 "
+" 17 constant in4 "
+" 5 constant enb "
+
+" 0 constant pwmchan "
+" 30 constant pwmfreq "
+" 2 constant PINMODE_OUTPUT "
+" 2000 value rampduty "
+" 20 value ramptime "
+" 600 value driveduty "
+
+" pwmchan pwmfreq 12 ledcsetup drop "
+" ena pwmchan ledcattachpin "
+
+" in1 PINMODE_OUTPUT pinmode "
+" in2 PINMODE_OUTPUT pinmode "
+
+" : off ( -- ) pwmchan 0 ledcwrite ; "
+" : pwmduty  ( n -- ) pwmchan swap ledcwrite ; "
+" : go ( -- )  rampduty pwmduty   ramptime ms   driveduty pwmduty ; "
+" : forw  ( -- ) in1 1 digitalWrite in2 0 digitalWrite ; "
+" : back  ( -- ) in1 0 digitalWrite in2 1 digitalWrite ; "
 
 " 200 ms "
 " ok "
