@@ -1,0 +1,5 @@
+#!/bin/bash
+
+COLUMNS=$(tput cols)
+
+awk "/.{$COLUMNS}/ {print substr(\$0, 1, $((COLUMNS/2))) \"...\" substr(\$0, length(\$0) - $((COLUMNS/2-3))); next} 1"
