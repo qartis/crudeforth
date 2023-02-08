@@ -60,8 +60,8 @@ void register_exception_handlers(void)
 
 #define OPCODE_LIST \
   X("'DOCOL", TICKDOCOL, DUP; tos = (cell_t)&&OP_DOCOLON) \
-  X("0=", ZEQUAL, tos = !tos ? -1 : 0) \
-  X("0<", ZLESS, tos = tos < 0 ? -1 : 0) \
+  X("=",   EQUAL, tos = (*sp == tos) ? -1 : 0; --sp) \
+  X("<",   LESS, tos = (*sp < tos) ? -1 : 0; --sp) \
   X("+",   PLUS, tos = *sp + tos; --sp) \
   X("/",   DIV,  tos = *sp / tos; --sp) \
   X("MOD", MOD,  tos = *sp % tos; --sp) \
@@ -89,13 +89,11 @@ void register_exception_handlers(void)
   X("EXECUTE", EXECUTE, w = tos; DROP; goto **(void **)w) \
   X("BRANCH", BRANCH, ip = (cell_t *)*ip) \
   X("0BRANCH", ZBRANCH, if (!tos) ip = (cell_t *)*ip; else ++ip; DROP) \
-  X("DONEXT", DONEXT, *rp = (*rp - 1); if (*rp) ip = (cell_t *)*ip; else (--rp, ++ip)) \
   X("DOLIT", DOLIT, DUP; tos = *ip; ++ip) \
   X("ALITERAL", ALITERAL, COMMA(g_sys.DOLIT_XT); COMMA(tos); DROP) \
   X("CELL", CELL, DUP; tos = sizeof(cell_t)) \
   X("FIND", FIND, tos = find((const char *)*sp, tos); --sp) \
   X("PARSE", PARSE, DUP; tos = parse(tos, (cell_t *)sp)) \
-  X("S>NUMBER?", CONVERT, tos = convert((const char *)*sp, tos, (cell_t *)sp); if (!tos) --sp) \
   X("HEADER", HEADER, DUP; DUP; tos = parse(' ', (cell_t *)sp); \
                       create((const char *)*sp, tos, &&OP_DOCOLON); \
                          --sp; DROP) \
@@ -306,10 +304,8 @@ const char boot[] = R"(
 HEADER : ' HEADER , -1 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit ,
 HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit , IMMEDIATE
 
-: bl 32 ;
-: nl 10 ;
 : (  41 parse drop drop ; immediate
-: \  nl parse drop drop ; immediate
+: \  10 parse drop drop ; immediate
 : 2drop ( n n -- ) drop drop ;
 : 2dup ( a b -- a b a b ) over over ;
 : nip ( a b -- b ) swap drop ;
@@ -320,10 +316,10 @@ HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit 
 : invert ( n -- ~n ) -1 xor ;
 : negate ( n -- -n ) invert 1 + ;
 : - ( n n -- n ) negate + ;
-: < ( a b -- a<b ) - 0< ;
-: > ( a b -- a>b ) swap - 0< ;
-: = ( a b -- a!=b ) - 0= ;
-: <> ( a b -- a!=b ) = 0= ;
+: 0= 0 = ;
+: 0< 0 < ;
+: > ( a b -- a>b ) swap < ;
+: <> ( a b -- a!=b ) = invert ;
 : 1+ 1 + ;
 : 1- 1 - ;
 : +! ( n a -- ) swap over @ + swap ! ;
@@ -357,7 +353,9 @@ HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit 
 : ] -1 state ! ; immediate
 
 \ Quoting Words
-\ : ' bl parse 2dup find dup >r -rot r> 0= 'notfound @ execute 2drop ;
+: bl  ( -- n ) 32 ;
+: nl  ( -- n ) 10 ;
+: ' bl parse 2dup find dup >r -rot r> 0= 'notfound @ execute 2drop ;
 : ['] ' aliteral ; immediate
 : char bl parse drop c@ ;
 : [char] char aliteral ; immediate
@@ -462,6 +460,8 @@ handler 'throw-handler !
 : cr nl emit ;
 
 \ Numeric Output
+\ TODO: this has a bug now
+\ hex 0 1 - . --> /
 variable hld
 : pad ( -- a ) here 80 + ;
 : digit ( u -- c ) 9 over < 7 and + 48 + ;
