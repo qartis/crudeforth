@@ -12,8 +12,8 @@ typedef int64_t dcell_t;
 typedef uint64_t udcell_t;
 
 extern "C" {
-	void panic_print_str(const char *str);
-	void panic_print_registers(const void *frame, int core);
+  void panic_print_str(const char *str);
+  void panic_print_registers(const void *frame, int core);
 }
 
 
@@ -35,19 +35,13 @@ static void IRAM_ATTR forth_exception_handler(XtExcFrame *frame)
 
 void register_exception_handlers(void)
 {
-	uint32_t default_setlevel = XTOS_SET_INTLEVEL(XCHAL_EXCM_LEVEL);
-	XTOS_RESTORE_INTLEVEL(default_setlevel);
-	g_forth_setlevel = default_setlevel;
+  uint32_t default_setlevel = XTOS_SET_INTLEVEL(XCHAL_EXCM_LEVEL);
+  XTOS_RESTORE_INTLEVEL(default_setlevel);
+  g_forth_setlevel = default_setlevel;
 
-	xt_set_exception_handler(EXCCAUSE_LOAD_STORE_ERROR, forth_exception_handler);
-	xt_set_exception_handler(EXCCAUSE_PRIVILEGED, forth_exception_handler);
-	xt_set_exception_handler(EXCCAUSE_UNALIGNED, forth_exception_handler);
-	xt_set_exception_handler(EXCCAUSE_DIVIDE_BY_ZERO, forth_exception_handler);
-	xt_set_exception_handler(EXCCAUSE_INSTR_ERROR, forth_exception_handler);
-	xt_set_exception_handler(EXCCAUSE_ILLEGAL, forth_exception_handler);
-	xt_set_exception_handler(EXCCAUSE_LOAD_PROHIBITED, forth_exception_handler);
-	xt_set_exception_handler(EXCCAUSE_STORE_PROHIBITED, forth_exception_handler);
-	xt_set_exception_handler(EXCCAUSE_INSTR_PROHIBITED, forth_exception_handler);
+  for (int i = 0; i < 64; i++) {
+    xt_set_exception_handler(i, forth_exception_handler);
+  }
 }
 
 
