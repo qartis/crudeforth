@@ -328,12 +328,12 @@ HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit 
 : 1- 1 - ;
 : +! ( n a -- ) swap over @ + swap ! ;
 
-( \ Cells  )
+\ Cells
 : cell+ ( n -- n ) cell + ;
 : cells ( n -- n ) cell * ;
 : cell/ ( n -- n ) cell / ;
 
-( \ System Variables )
+\ System Variables
 : 'tib ( -- a ) 'sys 0 cells + ;
 : #tib ( -- a ) 'sys 1 cells + ;
 : >in ( -- a ) 'sys 2 cells + ;
@@ -344,7 +344,7 @@ HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit 
 : 'notfound ( -- a ) 'sys 7 cells + ;
 : 'throw-handler ( -- a ) 'sys 9 cells + ;
 
-( \ Dictionary )
+\ Dictionary
 : here ( -- a ) 'here @ ;
 : latest  'latest @ ;
 : allot ( n -- ) 'here +! ;
@@ -352,18 +352,18 @@ HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit 
 : align   here aligned 'here ! ;
 : c, ( ch -- ) here c! 1 allot ;
 
-( \ Compilation State )
+\ Compilation State
 : [  0 state ! ; immediate
 : ] -1 state ! ; immediate
 
-( \ Quoting Words )
-( \ : ' bl parse 2dup find dup >r -rot r> 0= 'notfound @ execute 2drop ; )
+\ Quoting Words
+\ : ' bl parse 2dup find dup >r -rot r> 0= 'notfound @ execute 2drop ;
 : ['] ' aliteral ; immediate
 : char bl parse drop c@ ;
 : [char] char aliteral ; immediate
 : literal aliteral ; immediate
 
-( \ Core Control Flow  )
+\ Core Control Flow
 : begin   here ; immediate
 : again   ['] branch , , ; immediate
 : until   ['] 0branch , , ; immediate
@@ -375,57 +375,57 @@ HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit 
 : repeat   ['] branch , , here swap ! ; immediate
 : aft   drop ['] branch , here 0 , here swap ; immediate
 
-( \ Compound words requiring conditionals  )
+\ Compound words requiring conditionals
 : min 2dup < if drop else nip then ;
 : max 2dup < if nip else drop then ;
 : abs ( n -- +n ) dup 0< if negate then ;
 
-( \ Dictionary Format  )
+\ Dictionary Format
 : >name ( xt -- a n ) 3 cells - dup @ swap over aligned - swap ;
 : >link ( xt -- a ) 2 cells - @ ;
 : >flags ( xt -- flags ) cell - ;
 : >body ( xt -- a ) 2 cells + ;
 : >:body ( xt -- a ) cell+ ;
 
-( \ Postpone - done here so we have ['] and IF  )
+\ Postpone - done here so we have ['] and IF
 : immediate? ( xt -- f ) >flags @ 1 and 0= 0= ;
 : postpone ' dup immediate? if , else aliteral ['] , , then ; immediate
 
-( \ create and does> (taken from planckforth) )
+\ create and does> (taken from planckforth)
 : nop ;
 : :noname 0 , latest , 0 , here dup 'latest ! 'docol , postpone ] ;
 : create   header here 4 cells + aliteral postpone nop postpone exit ;
 : (does>) ( n -- )  latest 3 cells + ! ;
 : does>  0 aliteral here cell - postpone (does>) postpone ; :noname swap ! ; immediate
 
-( \ Constants and Variables  )
+\ Constants and Variables
 : constant ( n "name" -- ) create , does> @ ;
 : variable ( "name" -- ) create 0 , ;
 
-( \ Counted Loops  )
+\ Counted Loops
 variable nest-depth
 variable leaving
 : leaving,   here leaving @ , leaving ! ;
 : leaving(   leaving @ 0 leaving !   2 nest-depth +! ;
 : )leaving   leaving @ swap leaving !  -2 nest-depth +!
              begin dup while dup @ swap here swap ! repeat drop ;
-: (DO) ( n n -- .. ) swap r> -rot >r >r >r ;
-: do ( lim s -- ) leaving( postpone (DO) here ; immediate
-: (?DO) ( n n -- n n f .. )
+:noname ( n n -- .. ) swap r> -rot >r >r >r ;
+: do ( lim s -- ) leaving( literal , here ; immediate
+:noname ( n n -- n n f .. )
    2dup = if 2drop r> @ >r else swap r> cell+ -rot >r >r >r then ;
-: ?do ( lim s -- ) leaving( postpone (?DO) leaving, here ; immediate
+: ?do ( lim s -- ) leaving( literal , leaving, here ; immediate
 : UNLOOP   r> rdrop rdrop >r ;
-: (LEAVE)   r> rdrop rdrop @ >r ;
-: leave   postpone (LEAVE) leaving, ; immediate
-: (+LOOP) ( n -- ) dup 0< swap r> r> rot + dup r@ < -rot >r >r xor 0=
+:noname   r> rdrop rdrop @ >r ;
+: leave   literal , leaving, ; immediate
+:noname  ( n -- ) dup 0< swap r> r> rot + dup r@ < -rot >r >r xor 0=
                  if r> cell+ rdrop rdrop >r else r> @ >r then ;
-: +loop ( n -- ) postpone (+LOOP) , )leaving ; immediate
-: (LOOP)   r> r> 1+ dup r@ < -rot >r >r 0=
+: +loop ( n -- ) literal , , )leaving ; immediate
+:noname  r> r> 1+ dup r@ < -rot >r >r 0=
          if r> cell+ rdrop rdrop >r else r> @ >r then ;
-: loop   postpone (LOOP) , )leaving ; immediate
-create I ' r@ @ ' i !  ( i is same as r@ )
-\ : J ( -- n ) rp@ 3 cells - @ ;
-\ : K ( -- n ) rp@ 5 cells - @ ;
+: loop   literal , , )leaving ; immediate
+: i ( -- n ) rp@ 1 cells - @ ;
+: j ( -- n ) rp@ 3 cells - @ ;
+: k ( -- n ) rp@ 5 cells - @ ;
 
 
 
@@ -436,24 +436,24 @@ create I ' r@ @ ' i !  ( i is same as r@ )
 
 
 
-( \ Stack Convenience  )
+\ Stack Convenience
 sp@ constant sp0
 rp@ constant rp0
 : depth ( -- n ) sp@ sp0 - cell/ ;
 
-( \ Exceptions  )
+\ Exceptions
 variable handler
 handler 'throw-handler !
 : catch ( xt -- n )  sp@ >r handler @ >r rp@ handler ! execute r> handler ! r> drop 0 ;
 : throw ( n -- )     dup if handler @ rp! r> handler !  r> swap >r sp! drop r> else drop then ;
 ' throw 'notfound !
 
-( \ Values  )
-: value ( n -- ) create , does> @ ;
+\ Values
+: value ( n -- ) constant ;
 : to ( n -- ) state @ if postpone ['] postpone >body postpone !
                       else ' >body ! then ; immediate
 
-( \ Deferred Words  )
+\ Deferred Words
 : defer ( "name" -- ) create 0 , does> @ dup 0= throw execute ;
 : is ( xt "name" -- ) postpone to ; immediate
 
@@ -461,7 +461,7 @@ handler 'throw-handler !
 : space bl emit ;
 : cr nl emit ;
 
-( \ Numeric Output  )
+\ Numeric Output
 variable hld
 : pad ( -- a ) here 80 + ;
 : digit ( u -- c ) 9 over < 7 and + 48 + ;
@@ -481,7 +481,7 @@ variable hld
 : . ( w -- ) base @ 10 xor if u. else str type space then ;
 : ? ( a -- ) @ . ;
 
-( \ Strings  )
+\ Strings
 : parse-quote ( -- a n ) [char] " parse ;
 : $place ( a n -- ) 0 do dup c@ c, 1+ loop drop 0 c, align ;
 : $@   r@ dup cell+ swap @ r> dup @ 1+ aligned + cell+ >r ;
@@ -490,14 +490,14 @@ variable hld
 : ."   postpone s" state @ if postpone type else type then ; immediate
 : z"   postpone s" state @ if postpone drop else drop then ; immediate
 
-( \ Better Errors  )
+\ Better Errors
 : notfound ( a n n -- )  if cr ." ERROR: " type ."  NOT FOUND!" cr -1 throw then ;
 ' notfound 'notfound !
 
-( \ Examine Dictionary  )
-( \ TODO: errors when decompiling: )
-( \ - words containing ." and s" )
-( \ - loops/0branch )
+\ Examine Dictionary
+\ TODO: errors when decompiling:
+\ - words containing ." and s"
+\ - loops/0branch
 : builtin? ( xt -- ) @ 'DOCOL <> ;
 : see. ( xt -- ) >name type space ;
 : see-one ( xt -- xt+1 )  dup @ dup ['] DOLIT = if drop cell+ dup @ . else see. then cell+ ;
@@ -508,10 +508,10 @@ variable hld
 : see   ' dup builtin? if dup see. ." is builtin" else see-: then cr ;
 : words   latest begin dup see. >link dup 0= until drop cr ;
 
-( \ Examine Memory  )
+\ Examine Memory
 : dump ( a n -- )  cr 0 do i 16 mod 0= if cr then dup i + c@ 2 u.0 space loop drop cr ;
 
-( \ Input  )
+\ Input
 : accept ( a n -- n ) 0 swap begin 2dup < while
    key dup nl = if 2drop nip exit then
    >r rot r> over c! 1+ -rot swap 1+ swap repeat drop nip ;
@@ -521,7 +521,7 @@ create input-buffer   input-limit allot
 : tib-setup   input-buffer 'tib ! ;
 : refill   tib-setup tib input-limit accept #tib ! 0 >in ! -1 ;
 
-( \ REPL  )
+\ REPL
 : prompt   state @ if ."  compiled" else ."  ok" then cr ;
 : evaluate-buffer   begin >in @ #tib @ < while evaluate1 repeat ;
 : evaluate ( a n -- ) 'tib @ >r #tib @ >r >in @ >r
