@@ -1,10 +1,55 @@
 #include <inttypes.h>
 #include <stdint.h>
 #include <string.h>
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <setjmp.h>
+#include <xtensa/xtensa_api.h>
+#include "exception_names.h"
 
 typedef intptr_t cell_t;
 typedef int64_t dcell_t;
 typedef uint64_t udcell_t;
+
+extern "C" {
+	void panic_print_str(const char *str);
+	void panic_print_registers(const void *frame, int core);
+}
+
+
+static __thread jmp_buf g_forth_fault;
+static __thread int g_forth_signal;
+static __thread uint32_t g_forth_setlevel;
+static void IRAM_ATTR forth_exception_handler(XtExcFrame *frame)
+{
+  g_forth_signal = frame->exccause;
+  XTOS_RESTORE_INTLEVEL(g_forth_setlevel);
+
+  panic_print_str("Exception: ");
+  panic_print_str(exception_names[frame->exccause]);
+  panic_print_str("\n");
+  panic_print_registers(frame, ARDUINO_RUNNING_CORE);
+
+  longjmp(g_forth_fault, 1);
+}
+
+void register_exception_handlers(void)
+{
+	uint32_t default_setlevel = XTOS_SET_INTLEVEL(XCHAL_EXCM_LEVEL);
+	XTOS_RESTORE_INTLEVEL(default_setlevel);
+	g_forth_setlevel = default_setlevel;
+
+	xt_set_exception_handler(EXCCAUSE_LOAD_STORE_ERROR, forth_exception_handler);
+	xt_set_exception_handler(EXCCAUSE_PRIVILEGED, forth_exception_handler);
+	xt_set_exception_handler(EXCCAUSE_UNALIGNED, forth_exception_handler);
+	xt_set_exception_handler(EXCCAUSE_DIVIDE_BY_ZERO, forth_exception_handler);
+	xt_set_exception_handler(EXCCAUSE_INSTR_ERROR, forth_exception_handler);
+	xt_set_exception_handler(EXCCAUSE_ILLEGAL, forth_exception_handler);
+	xt_set_exception_handler(EXCCAUSE_LOAD_PROHIBITED, forth_exception_handler);
+	xt_set_exception_handler(EXCCAUSE_STORE_PROHIBITED, forth_exception_handler);
+	xt_set_exception_handler(EXCCAUSE_INSTR_PROHIBITED, forth_exception_handler);
+}
+
 
 #define HEAP_SIZE (100 * 1024)
 #define STACK_SIZE 512
@@ -57,8 +102,7 @@ typedef uint64_t udcell_t;
   X("EXECUTE", EXECUTE, w = tos; DROP; goto **(void **)w) \
   X("BRANCH", BRANCH, ip = (cell_t *)*ip) \
   X("0BRANCH", ZBRANCH, if (!tos) ip = (cell_t *)*ip; else ++ip; DROP) \
-  X("DONEXT", DONEXT, *rp = (*rp - 1); \
-                      if (*rp) ip = (cell_t *)*ip; else (--rp, ++ip)) \
+  X("DONEXT", DONEXT, *rp = (*rp - 1); if (*rp) ip = (cell_t *)*ip; else (--rp, ++ip)) \
   X("DOLIT", DOLIT, DUP; tos = *ip; ++ip) \
   X("ALITERAL", ALITERAL, COMMA(g_sys.DOLIT_XT); COMMA(tos); DROP) \
   X("CELL", CELL, DUP; tos = sizeof(cell_t)) \
@@ -77,10 +121,9 @@ typedef uint64_t udcell_t;
   X("EXIT", EXIT, ip = (cell_t *)*rp; --rp) \
   X("key", KEY, while(!Serial.available()) {} DUP; tos = Serial.read()) \
   X("key?", KEY_Q, DUP; tos = Serial.available()) \
-  X("type", TYPE, Serial.write((const uint8_t *) *sp, tos); --sp; DROP) \
+  X("type", TYPE, {char buf[128];snprintf(buf, sizeof(buf), "%.*s", tos, (const uint8_t *)*sp);panic_print_str(buf);}/*Serial.write((const uint8_t *) *sp, tos); */--sp; DROP) \
   X("ms", MS, delay(tos); DROP) \
-  X("bye", BYE, exit(tos)) \
-  X("DD", DD, for(cell_t *start = (cell_t *)here + STACK_SIZE + STACK_SIZE; start < g_sys.here; start++) { printf("%08x: %08x\n", start, *start); } ) \
+  X("bye", BYE, ESP.restart()) \
   X("ledcSetup", LEDCSETUP, sp[-1] = ledcSetup(sp[-1], sp[0], tos); DROP; DROP) \
   X("ledcAttachPin", LEDCATTACHPIN, ledcAttachPin(*sp, tos); DROP; DROP) \
   X("ledcWrite", LEDCWRITE, ledcWrite(*sp, tos); DROP; DROP) \
@@ -90,16 +133,15 @@ typedef uint64_t udcell_t;
   X("server.begin", SERVERBEGIN, server.begin(tos); DROP) \
   X("pinMode", PINMODE, pinMode((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
   X("digitalWrite", DIGITALWRITE, digitalWrite((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
+  X("DD", DD, for(cell_t *start = (cell_t *)here + STACK_SIZE + STACK_SIZE; start < g_sys.here; start++) { printf("%08x: %08x\n", start, *start); } ) \
 
 static struct {
   const char *tib;
   cell_t ntib, tin, state, base;
   cell_t *here, *latest;
   cell_t NOTFOUND_XT, DOLIT_XT;
+  cell_t **throw_handler;
 } g_sys;
-
-#include <WiFi.h>
-#include <WiFiClient.h>
 
 cell_t FromIP(IPAddress ip) {
   cell_t ret = 0;
@@ -245,9 +287,19 @@ static void ueforth(void *here, const char *src, cell_t src_len) {
   COMMA(FIND("BRANCH"));
   COMMA(ip);
 
+  if (setjmp(g_forth_fault)) {
+    rp = *g_sys.throw_handler;
+    *g_sys.throw_handler = (cell_t *) *rp--;
+    sp = (cell_t *) *rp--;
+    ip = (cell_t *) *rp--;
+    --sp;
+    tos = -g_forth_signal;
+  } else {
+    register_exception_handlers();
+  }
+
   /* start interpreting EVALUATE1/BRANCH loop defined above */
   NEXT;
-
 
 #define X(name, op, code) OP_ ## op: { code; } NEXT;
   OPCODE_LIST
@@ -263,6 +315,7 @@ HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit 
 : bl 32 ;
 : nl 10 ;
 : (   41 parse drop drop ; immediate
+( : \  nl parse drop drop ; immediate \ broken )
 : 2drop ( n n -- ) drop drop ;
 : 2dup ( a b -- a b a b ) over over ;
 : nip ( a b -- b ) swap drop ;
@@ -299,6 +352,7 @@ HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit 
 : 'here ( -- a ) 'sys 5 cells + ;
 : 'latest ( -- a ) 'sys 6 cells + ;
 : 'notfound ( -- a ) 'sys 7 cells + ;
+: 'throw-handler ( -- a ) 'sys 9 cells + ;
 
 ( \ Dictionary )
 : here ( -- a ) 'here @ ;
@@ -380,6 +434,7 @@ rp@ constant rp0
 
 ( \ Exceptions  )
 variable handler
+handler 'throw-handler !
 : catch ( xt -- n )  sp@ >r handler @ >r rp@ handler ! execute r> handler ! r> drop 0 ;
 : throw ( n -- )     dup if handler @ rp! r> handler !  r> swap >r sp! drop r> else drop then ;
 ' throw 'notfound !
@@ -399,7 +454,6 @@ variable handler
 
 ( \ Numeric Output  )
 variable hld
-
 : pad ( -- a ) here 80 + ;
 : digit ( u -- c ) 9 over < 7 and + 48 + ;
 : extract ( n base -- n c ) 0 swap um/mod swap digit ;
@@ -470,6 +524,17 @@ create input-buffer   input-limit allot
 : ok   ." uEForth" cr prompt refill drop query ;
 : .s ." < " depth . ." > " depth 0 = if exit then depth 0 do sp0 i 1 + cells + @ . loop cr ;
 : forget  ' dup >name drop 'here ! >link 'latest ! ;
+
+
+: ?dup  ( n -- 0 | n n )  dup if dup then ;
+: pick  ( n -- n ) 1+ cells sp@ swap - @ ;
+: printprim  ( a -- ) ['] dd begin dup @ 2 pick = if ." && DO_" >name type drop exit then >link ?dup 0= until 8 u.0 ;
+: printword  ( xt -- )  latest begin 2dup = if ." --> " >name type drop exit then >link ?dup 0= until printprim ( 8 u.0 ) ;
+: showaddr  ( addr -- ) dup 8 u.0 space @ printword cr ;
+: bounds over + swap ;
+: dump  ( addr n-cells -- ) cells bounds do i showaddr cell +loop ;
+
+
 
 200 ms
 ok
