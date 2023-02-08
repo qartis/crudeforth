@@ -53,13 +53,6 @@ void register_exception_handlers(void)
 #define DROP tos = *sp--
 #define COMMA(n) *g_sys.here++ = ((cell_t)n)
 #define IMMEDIATE() g_sys.latest[-1] |= FLAG_IMMEDIATE
-#define UMSMOD ud = *(udcell_t *)&sp[-1]; \
-               --sp; *sp = (cell_t)(ud % tos); \
-               tos = (cell_t)(ud / tos)
-#define SSMOD d = (dcell_t)*sp * (dcell_t)sp[-1]; \
-              --sp; *sp = (cell_t) (((udcell_t)d) % tos); \
-              tos = (cell_t)(d < 0 ? ~(~d / tos) : d / tos)
-
 #define NEXT w = *ip++; goto **(void **)w
 #define CELL_LEN(n) (((n) + sizeof(cell_t) - 1) / sizeof(cell_t))
 #define FIND(name) find(name, sizeof(name) - 1)
@@ -69,14 +62,14 @@ void register_exception_handlers(void)
   X("'DOCOL", TICKDOCOL, DUP; tos = (cell_t)&&OP_DOCOLON) \
   X("0=", ZEQUAL, tos = !tos ? -1 : 0) \
   X("0<", ZLESS, tos = tos < 0 ? -1 : 0) \
-  X("+", PLUS, tos += *sp; --sp) \
-  X("UM/MOD", UMSMOD, UMSMOD) \
-  X("*/MOD", SSMOD, SSMOD) \
-  X("*", MUL, tos *= *sp; --sp) \
-  X("AND", AND, tos &= *sp; --sp) \
-  X("OR", OR, tos |= *sp; --sp) \
-  X("XOR", XOR, tos ^= *sp; --sp) \
-  X("DUP", DUP, DUP) \
+  X("+",   PLUS, tos = *sp + tos; --sp) \
+  X("/",   DIV,  tos = *sp / tos; --sp) \
+  X("MOD", MOD,  tos = *sp % tos; --sp) \
+  X("*",   MUL,  tos = *sp * tos; --sp) \
+  X("AND", AND,  tos = *sp & tos; --sp) \
+  X("OR",  OR,   tos = *sp | tos; --sp) \
+  X("XOR", XOR,  tos = *sp ^ tos; --sp) \
+  X("DUP", DUP,  DUP) \
   X("SWAP", SWAP, w = tos; tos = *sp; *sp = w) \
   X("OVER", OVER, DUP; tos = sp[-1]) \
   X("DROP", DROP, DROP) \
@@ -153,8 +146,10 @@ static cell_t convert(const char *pos, cell_t n, cell_t *ret) {
   cell_t negate = 0;
   cell_t base = g_sys.base;
   if (!n) { return 0; }
-  if (pos[0] == '-') { negate = -1; ++pos; --n; }
+  if (pos[0] == '-') { negate = 1; ++pos; --n; }
   if (pos[0] == '$') { base = 16; ++pos; --n; }
+  if (pos[0] == '#') { base = 10; ++pos; --n; }
+  if (pos[0] == '0' && n > 1 && pos[1] == 'x') { base = 16; pos += 2; n -= 2; }
   for (; n; --n) {
     uintptr_t d = pos[0] - '0';
     if (d > 9) {
@@ -209,18 +204,23 @@ static void create(const char *name, cell_t length, void *op) {
   COMMA(op);  // code
 }
 
-static char spacefilter(char ch) {
-  return ch == '\t' || ch == '\n' || ch == '\r' ? ' ' : ch;
+int match(char sep, char ch)
+{
+  return sep == ch || (sep == ' ' && (ch == '\t' || ch == '\n' || ch == '\r'));
 }
 
-static cell_t parse(cell_t sep, cell_t *ret) {
+cell_t parse(cell_t sep, cell_t *ret)
+{
+  if (sep == ' ') {
+    while (g_sys.tin < g_sys.ntib &&
+           match(sep, g_sys.tib[g_sys.tin])) { ++g_sys.tin; }
+  }
+  cell_t start = g_sys.tin;
   while (g_sys.tin < g_sys.ntib &&
-         spacefilter(g_sys.tib[g_sys.tin]) == sep) { ++g_sys.tin; }
-  *ret = (cell_t) (g_sys.tib + g_sys.tin);
-  while (g_sys.tin < g_sys.ntib &&
-         spacefilter(g_sys.tib[g_sys.tin]) != sep) { ++g_sys.tin; }
-  cell_t len = g_sys.tin - (*ret - (cell_t) g_sys.tib);
+         !match(sep, g_sys.tib[g_sys.tin])) { ++g_sys.tin; }
+  cell_t len = g_sys.tin - start;
   if (g_sys.tin < g_sys.ntib) { ++g_sys.tin; }
+  *ret = (cell_t)(g_sys.tib + start);
   return len;
 }
 
@@ -308,21 +308,18 @@ HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit 
 
 : bl 32 ;
 : nl 10 ;
-: (   41 parse drop drop ; immediate
-( : \  nl parse drop drop ; immediate \ broken )
+: (  41 parse drop drop ; immediate
+: \  nl parse drop drop ; immediate
 : 2drop ( n n -- ) drop drop ;
 : 2dup ( a b -- a b a b ) over over ;
 : nip ( a b -- b ) swap drop ;
 : rdrop ( r: n n -- ) r> r> drop >r ;
-: */ ( n n n -- n ) */mod nip ;
-: /mod ( n n -- n n ) 1 swap */mod ;
-: / ( n n -- n ) /mod nip ;
-: mod ( n n -- n ) /mod drop ;
+: rot ( a b c -- c a b ) >r swap r> swap ;
+: -rot ( a b c -- b c a ) swap >r swap r> ;
+: /mod ( n n -- n n ) 2dup mod -rot / ;
 : invert ( n -- ~n ) -1 xor ;
 : negate ( n -- -n ) invert 1 + ;
 : - ( n n -- n ) negate + ;
-: rot ( a b c -- c a b ) >r swap r> swap ;
-: -rot ( a b c -- b c a ) swap >r swap r> ;
 : < ( a b -- a<b ) - 0< ;
 : > ( a b -- a>b ) swap - 0< ;
 : = ( a b -- a!=b ) - 0= ;
@@ -330,7 +327,6 @@ HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit 
 : 1+ 1 + ;
 : 1- 1 - ;
 : +! ( n a -- ) swap over @ + swap ! ;
-
 
 ( \ Cells  )
 : cell+ ( n -- n ) cell + ;
@@ -421,7 +417,7 @@ HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit 
 : constant ( n "name" -- ) create , does> @ ;
 : variable ( "name" -- ) create 0 , ;
 
-( \ Stack Convience  )
+( \ Stack Convenience  )
 sp@ constant sp0
 rp@ constant rp0
 : depth ( -- n ) sp@ sp0 - cell/ ;
@@ -450,7 +446,7 @@ handler 'throw-handler !
 variable hld
 : pad ( -- a ) here 80 + ;
 : digit ( u -- c ) 9 over < 7 and + 48 + ;
-: extract ( n base -- n c ) 0 swap um/mod swap digit ;
+: extract ( n base -- n c ) /mod swap digit ;
 : <# ( -- ) pad hld ! ;
 : hold ( c -- ) hld @ 1 - dup hld ! c! ;
 : # ( u -- u ) base @ extract hold ;
@@ -480,7 +476,7 @@ variable hld
 ' notfound 'notfound !
 
 ( \ Examine Dictionary  )
-( \ TODO: crashes when decompiling: )
+( \ TODO: errors when decompiling: )
 ( \ - words containing ." and s" )
 ( \ - loops/0branch )
 : builtin? ( xt -- ) @ 'DOCOL <> ;
