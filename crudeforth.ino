@@ -16,10 +16,10 @@ extern "C" {
 }
 
 
-static __thread jmp_buf g_forth_fault;
-static __thread int g_forth_signal;
-static __thread uint32_t g_forth_setlevel;
-static void IRAM_ATTR forth_exception_handler(XtExcFrame *frame)
+__thread jmp_buf g_forth_fault;
+__thread int g_forth_signal;
+__thread uint32_t g_forth_setlevel;
+void IRAM_ATTR forth_exception_handler(XtExcFrame *frame)
 {
   g_forth_signal = frame->exccause;
   XTOS_RESTORE_INTLEVEL(g_forth_setlevel);
@@ -462,10 +462,6 @@ handler 'throw-handler !
 : to ( n -- ) state @ if postpone ['] postpone >value postpone !
                       else ' >value ! then ; immediate
 
-\ Deferred Words
-: defer ( "name" -- ) create 0 , does> @ dup 0= throw execute ;
-: is ( xt "name" -- ) postpone to ; immediate
-
 : emit ( n -- ) >r rp@ 1 type rdrop ;
 : space bl emit ;
 : cr nl emit ;
@@ -528,12 +524,12 @@ variable hld
 : rawdump ( a n -- )  cr 0 do i 16 mod 0= if cr then dup i + c@ 2 u.0 space loop drop cr ;
 
 \ Input
+200 constant input-limit
+create input-buffer   input-limit allot
 : accept ( a n -- n ) 0 swap begin 2dup < while
    key dup nl = if 2drop nip exit then
    >r rot r> over c! 1+ -rot swap 1+ swap repeat drop nip ;
-200 constant input-limit
 : tib ( -- a ) 'tib @ ;
-create input-buffer   input-limit allot
 : tib-setup   input-buffer 'tib ! ;
 : refill   tib-setup tib input-limit accept #tib ! 0 >in ! -1 ;
 
@@ -550,6 +546,7 @@ create input-buffer   input-limit allot
 : .s ." < " depth . ." > " depth 0 = if exit then depth 0 do sp0 i 1 + cells + @ . loop cr ;
 : forget  ' dup >name drop 'here ! >link 'latest ! ;
 
+\ Structs
 : struct  ( -- offset ) 0 ;
 : end-struct  ( offset "name" -- ) constant ;
 : i8%  ( -- size ) 1 ;
@@ -564,15 +561,56 @@ struct
   i32% field sockaddr_in>sin_addr
 end-struct sockaddr_in%
 
+
+\ Sockets
 1 constant SOCK_STREAM
 2 constant AF_INET
 1 constant SOL_SOCKET
 2 constant SO_REUSEADDR
 
 
+\ Motors
+2  constant ena 0 constant in1  4 constant in2
+19 constant enb 5 constant in3 18 constant in4
+
+0 constant pwmchan
+30 constant pwmfreq
+2 constant PINMODE_OUTPUT
+2000 value rampduty
+600 value driveduty
+80 value ramptime
+500 value steptime
+
+pwmchan pwmfreq 12 ( 12bit ) ledcsetup drop
+ena pwmchan ledcattachpin
+
+in1 PINMODE_OUTPUT pinmode in2 PINMODE_OUTPUT pinmode
+in3 PINMODE_OUTPUT pinmode in4 PINMODE_OUTPUT pinmode
+enb PINMODE_OUTPUT pinmode
+
+: hi ( n -- ) 1 digitalwrite ;
+: lo ( n -- ) 0 digitalwrite ;
+
+: steer  ( -- ) enb hi ;
+: left   ( -- ) in3 hi  in4 lo  steer ;
+: right  ( -- ) in3 lo  in4 hi  steer ;
+: straight  ( -- ) enb lo ;
+
+: stop  ( -- ) pwmchan 0 ledcwrite straight ;
+: pwmduty  ( n -- ) pwmchan swap ledcwrite ;
+: step  ( -- )  rampduty pwmduty   ramptime ms   driveduty pwmduty  steptime ms   0 pwmduty ;
+: forw  ( -- ) in1 hi in2 lo ;
+: back  ( -- ) in1 lo in2 hi ;
+
+forw
+stop
+
+
 200 ms
 ok
 )";
+
+
 
 void setup()
 {
