@@ -9,7 +9,9 @@ build/crudeforth.ino.bin: crudeforth.ino
 
 .PHONY: load
 load: build/crudeforth.ino.bin
+	killall rlwrap
 	arduino-cli upload -b $(BOARD) --input-dir ./build/ -p $(PORT)
+	touch /tmp/done_uploading
 
 .PHONY: clean
 clean:
@@ -17,4 +19,4 @@ clean:
 
 .PHONY: monitor
 monitor:
-	rlwrap socat FILE:$(PORT),b115200 STDOUT
+	@./tools/serial-monitor.sh $(PORT)
