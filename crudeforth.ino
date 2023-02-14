@@ -1,5 +1,6 @@
 #include <inttypes.h>
 #include <stdint.h>
+#include <sys/socket.h>
 #include <string.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -8,8 +9,6 @@
 #include "exception_names.h"
 
 typedef intptr_t cell_t;
-typedef int64_t dcell_t;
-typedef uint64_t udcell_t;
 
 extern "C" {
   void panic_print_str(const char *str);
@@ -58,25 +57,34 @@ void register_exception_handlers(void)
 #define FIND(name) find(name, sizeof(name) - 1)
 #define LOWER(ch) ((ch) & 0x5F)
 
+//  X("ARSHIFT", ARSHIFT, tos = *sp >> tos; --sp) \
+
 #define OPCODE_LIST \
   X("'DOCOL", TICKDOCOL, DUP; tos = (cell_t)&&OP_DOCOLON) \
   X("=",   EQUAL, tos = (*sp == tos) ? -1 : 0; --sp) \
   X("<",   LESS, tos = (*sp < tos) ? -1 : 0; --sp) \
   X("+",   PLUS, tos = *sp + tos; --sp) \
   X("/",   DIV,  tos = *sp / tos; --sp) \
+  X("U/",  UDIV, tos = (unsigned)*sp / tos; --sp) \
   X("MOD", MOD,  tos = *sp % tos; --sp) \
+  X("UMOD",UMOD, tos = (unsigned)*sp % tos; --sp) \
   X("*",   MUL,  tos = *sp * tos; --sp) \
   X("AND", AND,  tos = *sp & tos; --sp) \
   X("OR",  OR,   tos = *sp | tos; --sp) \
   X("XOR", XOR,  tos = *sp ^ tos; --sp) \
+  X("LSHIFT",  LSHIFT,  tos = *sp << tos; --sp) \
+  X("RSHIFT",  RSHIFT,  tos = (unsigned)*sp >> tos; --sp) \
   X("DUP", DUP,  DUP) \
   X("SWAP", SWAP, w = tos; tos = *sp; *sp = w) \
   X("OVER", OVER, DUP; tos = sp[-1]) \
   X("DROP", DROP, DROP) \
   X("@", AT, tos = *(cell_t *)tos) \
+  X("SW@", SWAT, tos = *(int16_t *)tos) \
+  X("UW@", UWAT, tos = *(uint16_t *)tos) \
   X("C@", CAT, tos = *(uint8_t *)tos) \
-  X("!", STORE, *(cell_t *)tos = *sp; --sp; DROP) \
-  X("C!", CSTORE, *(uint8_t *)tos = *sp; --sp; DROP) \
+  X("!", STORE, *(cell_t *)tos = *sp--; DROP) \
+  X("W!", WSTORE, *(int16_t *)tos = *sp--; DROP) \
+  X("C!", CSTORE, *(uint8_t *)tos = *sp--; DROP) \
   X("SP@", SPAT, DUP; tos = (cell_t) sp) \
   X("SP!", SPSTORE, sp = (cell_t *) tos; DROP) \
   X("RP@", RPAT, DUP; tos = (cell_t) rp) \
@@ -90,13 +98,10 @@ void register_exception_handlers(void)
   X("BRANCH", BRANCH, ip = (cell_t *)*ip) \
   X("0BRANCH", ZBRANCH, if (!tos) ip = (cell_t *)*ip; else ++ip; DROP) \
   X("DOLIT", DOLIT, DUP; tos = *ip; ++ip) \
-  X("ALITERAL", ALITERAL, COMMA(g_sys.DOLIT_XT); COMMA(tos); DROP) \
   X("CELL", CELL, DUP; tos = sizeof(cell_t)) \
   X("FIND", FIND, tos = find((const char *)*sp, tos); --sp) \
   X("PARSE", PARSE, DUP; tos = parse(tos, (cell_t *)sp)) \
-  X("HEADER", HEADER, DUP; DUP; tos = parse(' ', (cell_t *)sp); \
-                      create((const char *)*sp, tos, &&OP_DOCOLON); \
-                         --sp; DROP) \
+  X("CREATE", CREATE, create((const char *)sp[-1], sp[0], (void *)tos); DROP; DROP; DROP) \
   X("IMMEDIATE", IMMEDIATE, IMMEDIATE()) \
   X("'SYS", SYS, DUP; tos = (cell_t)&g_sys) \
   X("EVALUATE1", EVALUATE1, \
@@ -104,11 +109,11 @@ void register_exception_handlers(void)
       w = *sp; --sp; DROP; \
       if (w) goto **(void **)w) \
   X("EXIT", EXIT, ip = (cell_t *)*rp; --rp) \
-  X("key", KEY, while(!Serial.available()) {} DUP; tos = Serial.read()) \
-  X("key?", KEY_Q, DUP; tos = Serial.available()) \
-  X("type", TYPE, {char buf[128];snprintf(buf, sizeof(buf), "%.*s", tos, (const uint8_t *)*sp);panic_print_str(buf);}/*Serial.write((const uint8_t *) *sp, tos); */--sp; DROP) \
-  X("ms", MS, delay(tos); DROP) \
-  X("bye", BYE, ESP.restart()) \
+  X("KEY", KEY, while(!Serial.available()) {} DUP; tos = Serial.read()) \
+  X("KEY?", KEY_Q, DUP; tos = Serial.available()) \
+  X("TYPE", TYPE, {char buf[128];snprintf(buf, sizeof(buf), "%.*s", tos, (const uint8_t *)*sp);panic_print_str(buf);}/*Serial.write((const uint8_t *) *sp, tos); */--sp; DROP) /* to workaround deadlock when printing invalid strings */ \
+  X("MS", MS, delay(tos); DROP) \
+  X("BYE", BYE, ESP.restart()) \
   X("ledcSetup", LEDCSETUP, sp[-1] = ledcSetup(sp[-1], sp[0], tos); DROP; DROP) \
   X("ledcAttachPin", LEDCATTACHPIN, ledcAttachPin(*sp, tos); DROP; DROP) \
   X("ledcWrite", LEDCWRITE, ledcWrite(*sp, tos); DROP; DROP) \
@@ -118,9 +123,18 @@ void register_exception_handlers(void)
   X("server.begin", SERVERBEGIN, server.begin(tos); DROP) \
   X("pinMode", PINMODE, pinMode((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
   X("digitalWrite", DIGITALWRITE, digitalWrite((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
+  X("WRITE-FILE", WRITE_FILE, cell_t fd = tos; DROP; cell_t len = tos; DROP; \
+    tos = write(fd, (void *)tos, len); tos = (tos != len) ? errno : 0) \
+  X("READ-FILE", READ_FILE, cell_t fd = tos; DROP; cell_t len = tos; DROP; \
+    tos = read(fd, (void *)tos, len); DUP; tos = tos < 0 ? errno : 0) \
+  X("LISTEN", LISTEN, tos = listen(*sp, tos); --sp) \
+  X("SOCKACCEPT", SOCKACCEPT, cell_t fd = tos; DROP; void *addr = (void *)tos; DROP; tos = accept(fd, (sockaddr *)addr, (socklen_t *) tos)) \
+  X("SOCKET", SOCKET, cell_t proto = tos; DROP; cell_t type = tos; DROP; tos = socket(tos, type, proto)) \
+  X("BIND", BIND, cell_t fd = tos; DROP; sockaddr *addr = (sockaddr *)tos; DROP; tos = bind(fd, addr, tos)) \
   X("DD", DD, for(cell_t *start = (cell_t *)here + STACK_SIZE + STACK_SIZE; start < g_sys.here; start++) { printf("%08x: %08x\n", start, *start); } ) \
 
-static struct {
+
+struct {
   const char *tib;
   cell_t ntib, tin, state, base;
   cell_t *here, *latest;
@@ -139,7 +153,8 @@ cell_t FromIP(IPAddress ip) {
 
 WiFiServer server(80);
 
-static cell_t convert(const char *pos, cell_t n, cell_t *ret) {
+cell_t convert(const char *pos, cell_t n, cell_t *ret)
+{
   *ret = 0;
   cell_t negate = 0;
   cell_t base = g_sys.base;
@@ -162,12 +177,14 @@ static cell_t convert(const char *pos, cell_t n, cell_t *ret) {
   return -1;
 }
 
-static cell_t same(const char *a, const char *b, cell_t len) {
+cell_t same(const char *a, const char *b, cell_t len)
+{
   for (;len && LOWER(*a) == LOWER(*b); --len, ++a, ++b);
   return len;
 }
 
-static cell_t find(const char *name, cell_t len) {
+cell_t find(const char *name, cell_t len)
+{
   cell_t *pos = g_sys.latest;
   cell_t clen = CELL_LEN(len);
   while (pos) {
@@ -192,7 +209,8 @@ static cell_t find(const char *name, cell_t len) {
    [ words ]
 */
 
-static void create(const char *name, cell_t length, void *op) {
+void create(const char *name, cell_t length, void *op)
+{
   memcpy(g_sys.here, name, length);  // name
   g_sys.here += CELL_LEN(length);
   COMMA(length);  // length
@@ -222,7 +240,8 @@ cell_t parse(cell_t sep, cell_t *ret)
   return len;
 }
 
-static cell_t *evaluate1(cell_t *sp) {
+cell_t *evaluate1(cell_t *sp)
+{
   cell_t call = 0;
   cell_t name;
   cell_t len = parse(' ', &name);
@@ -244,6 +263,7 @@ static cell_t *evaluate1(cell_t *sp) {
         *++sp = n;
       }
     } else {
+      printf("not found: %.*s\n", len, name);
       *++sp = name;
       *++sp = len;
       *++sp = -1;
@@ -254,13 +274,13 @@ static cell_t *evaluate1(cell_t *sp) {
   return sp;
 }
 
-static void ueforth(void *here, const char *src, cell_t src_len) {
+void ueforth(void *here, const char *src, cell_t src_len) __attribute__((noreturn));
+void ueforth(void *here, const char *src, cell_t src_len)
+{
   g_sys.here = (cell_t *)here;
   register cell_t *sp = g_sys.here; g_sys.here += STACK_SIZE;
   register cell_t *rp = g_sys.here; g_sys.here += STACK_SIZE;
   register cell_t tos = 0, *ip, w;
-  dcell_t d;
-  udcell_t ud;
 
 #define X(name, op, code) create(name, sizeof(name) - 1, && OP_ ## op);
   OPCODE_LIST
@@ -301,8 +321,9 @@ static void ueforth(void *here, const char *src, cell_t src_len) {
 }
 
 const char boot[] = R"(
-HEADER : ' HEADER , -1 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit ,
-HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit , IMMEDIATE
+32 PARSE header 'DOCOL CREATE ' DOLIT , 32 , ' PARSE , ' DOLIT , 'DOCOL , ' CREATE , ' EXIT ,
+header : ' header , ' DOLIT , -1 , ' DOLIT , 'SYS 3 CELL * + , ' ! , ' EXIT ,
+header ; ' DOLIT , ' EXIT , ' , , ' DOLIT , 0 , ' DOLIT , 'SYS 3 CELL * + , ' ! , ' EXIT , IMMEDIATE
 
 : (  41 parse drop drop ; immediate
 : \  10 parse drop drop ; immediate
@@ -312,7 +333,7 @@ HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit 
 : rdrop ( r: n n -- ) r> r> drop >r ;
 : rot ( a b c -- c a b ) >r swap r> swap ;
 : -rot ( a b c -- b c a ) swap >r swap r> ;
-: /mod ( n n -- n n ) 2dup mod -rot / ;
+: u/mod 2dup umod -rot u/ ;
 : invert ( n -- ~n ) -1 xor ;
 : negate ( n -- -n ) invert 1 + ;
 : - ( n n -- n ) negate + ;
@@ -356,6 +377,7 @@ HEADER ; ' exit ALITERAL ' , , 0 ALITERAL 'sys 3 cell * + ALITERAL ' ! , ' exit 
 : bl  ( -- n ) 32 ;
 : nl  ( -- n ) 10 ;
 : ' bl parse 2dup find dup >r -rot r> 0= 'notfound @ execute 2drop ;
+: aliteral [ ' dolit , ' dolit , ' , , ] , ;
 : ['] ' aliteral ; immediate
 : char bl parse drop c@ ;
 : [char] char aliteral ; immediate
@@ -405,34 +427,22 @@ variable nest-depth
 variable leaving
 : leaving,   here leaving @ , leaving ! ;
 : leaving(   leaving @ 0 leaving !   2 nest-depth +! ;
-: )leaving   leaving @ swap leaving !  -2 nest-depth +!
-             begin dup while dup @ swap here swap ! repeat drop ;
-:noname ( n n -- .. ) swap r> -rot >r >r >r ;
-: do ( lim s -- ) leaving( literal , here ; immediate
-:noname ( n n -- n n f .. )
-   2dup = if 2drop r> @ >r else swap r> cell+ -rot >r >r >r then ;
-: ?do ( lim s -- ) leaving( literal , leaving, here ; immediate
-: UNLOOP   r> rdrop rdrop >r ;
-:noname   r> rdrop rdrop @ >r ;
-: leave   literal , leaving, ; immediate
-:noname  ( n -- ) dup 0< swap r> r> rot + dup r@ < -rot >r >r xor 0=
-                 if r> cell+ rdrop rdrop >r else r> @ >r then ;
-: +loop ( n -- ) literal , , )leaving ; immediate
-:noname  r> r> 1+ dup r@ < -rot >r >r 0=
-         if r> cell+ rdrop rdrop >r else r> @ >r then ;
-: loop   literal , , )leaving ; immediate
-: i ( -- n ) rp@ 1 cells - @ ;
-: j ( -- n ) rp@ 3 cells - @ ;
-: k ( -- n ) rp@ 5 cells - @ ;
-
-
-
-
-
-
-
-
-
+: )leaving   leaving @ swap leaving !  -2 nest-depth +! begin dup while dup @ swap here swap ! repeat drop ;
+: (do)   ( n n -- .. ) swap r> -rot >r >r >r ;
+: do     ( lim s -- ) leaving( postpone (do) here ; immediate
+: (?do)  ( n n -- n n f .. ) 2dup = if 2drop r> @ >r else swap r> cell+ -rot >r >r >r then ;
+: ?do    ( lim s -- ) leaving( postpone (?do) leaving, here ; immediate
+: unloop   r> rdrop rdrop >r ;
+: (leave)   r> rdrop rdrop @ >r ;
+: leave   postpone (leave) leaving, ; immediate
+: (+loop)  ( n -- ) dup 0< swap r> r> rot + dup r@ < -rot >r >r xor 0= if r> cell+ rdrop rdrop >r else r> @ >r then ;
+: +loop    ( n -- ) postpone (+loop) , )leaving ; immediate
+: (loop)  r> r> 1+ dup r@ < -rot >r >r 0= if r> cell+ rdrop rdrop >r else r> @ >r then ;
+: loop   postpone (loop) , )leaving ; immediate
+: rpick 1+ cells rp@ swap - @ ;
+: i 1 rpick ;
+: j 3 rpick ;
+: k 5 rpick ;
 
 \ Stack Convenience
 sp@ constant sp0
@@ -448,8 +458,9 @@ handler 'throw-handler !
 
 \ Values
 : value ( n -- ) constant ;
-: to ( n -- ) state @ if postpone ['] postpone >body postpone !
-                      else ' >body ! then ; immediate
+: >value 5 cells + ;
+: to ( n -- ) state @ if postpone ['] postpone >value postpone !
+                      else ' >value ! then ; immediate
 
 \ Deferred Words
 : defer ( "name" -- ) create 0 , does> @ dup 0= throw execute ;
@@ -460,17 +471,15 @@ handler 'throw-handler !
 : cr nl emit ;
 
 \ Numeric Output
-\ TODO: this has a bug now
-\ hex 0 1 - . --> /
 variable hld
 : pad ( -- a ) here 80 + ;
-: digit ( u -- c ) 9 over < 7 and + 48 + ;
-: extract ( n base -- n c ) /mod swap digit ;
+: digit ( u -- c ) 9 over < 7 and + [char] 0 + ;
+: extract ( n base -- n c ) u/mod swap digit ;
 : <# ( -- ) pad hld ! ;
 : hold ( c -- ) hld @ 1 - dup hld ! c! ;
 : # ( u -- u ) base @ extract hold ;
 : #s ( u -- 0 ) begin # dup while repeat ;
-: sign ( n -- ) 0< if 45 hold then ;
+: sign ( n -- ) 0< if [char] - hold then ;
 : #> ( w -- b u ) drop hld @ pad over - ;
 : str ( n -- b u ) dup >r abs <# #s r> sign #> ;
 : hex ( -- ) 16 base ! ;
@@ -479,7 +488,7 @@ variable hld
 : #n ( u n -- u )  0 ?do # loop ;
 : u.0 ( u n -- )  <# 1- #n #s #> type ;
 : . ( w -- ) base @ 10 xor if u. else str type space then ;
-: ? ( a -- ) @ . ;
+: u.8hex  ( u n -- ) base @ >r   hex 8 u.0    r> base ! ;
 
 \ Strings
 : parse-quote ( -- a n ) [char] " parse ;
@@ -509,7 +518,14 @@ variable hld
 : words   latest begin dup see. >link dup 0= until drop cr ;
 
 \ Examine Memory
-: dump ( a n -- )  cr 0 do i 16 mod 0= if cr then dup i + c@ 2 u.0 space loop drop cr ;
+: ?dup  ( n -- 0 | n n ) dup if dup then ;
+: pick  ( n -- n ) 1+ cells sp@ swap - @ ;
+: printprim  ( a -- ) ['] dd begin dup @ 2 pick = if ." &&DO_" >name type drop exit then >link ?dup 0= until  u.8hex ;
+: printword  ( xt -- )  latest begin 2dup = if ." --> " >name type drop exit then >link ?dup 0= until printprim ;
+: dumpaddr  ( addr -- ) dup u.8hex space @ printword cr ;
+: bounds over + swap ;
+: dump  ( addr ncells -- ) cells bounds do i dumpaddr cell +loop ;
+: rawdump ( a n -- )  cr 0 do i 16 mod 0= if cr then dup i + c@ 2 u.0 space loop drop cr ;
 
 \ Input
 : accept ( a n -- n ) 0 swap begin 2dup < while
@@ -534,27 +550,38 @@ create input-buffer   input-limit allot
 : .s ." < " depth . ." > " depth 0 = if exit then depth 0 do sp0 i 1 + cells + @ . loop cr ;
 : forget  ' dup >name drop 'here ! >link 'latest ! ;
 
+: struct  ( -- offset ) 0 ;
+: end-struct  ( offset "name" -- ) constant ;
+: i8%  ( -- size ) 1 ;
+: i16%  ( -- size ) 2 ;
+: i32%  ( -- size ) 4 ;
+: field  ( offset1 size "name" -- offset2 ) create swap dup , + does> @ + ;
 
-: ?dup  ( n -- 0 | n n )  dup if dup then ;
-: pick  ( n -- n ) 1+ cells sp@ swap - @ ;
-: printprim  ( a -- ) ['] dd begin dup @ 2 pick = if ." && DO_" >name type drop exit then >link ?dup 0= until 8 u.0 ;
-: printword  ( xt -- )  latest begin 2dup = if ." --> " >name type drop exit then >link ?dup 0= until printprim ( 8 u.0 ) ;
-: showaddr  ( addr -- ) dup 8 u.0 space @ printword cr ;
-: bounds over + swap ;
-: dump  ( addr n-cells -- ) cells bounds do i showaddr cell +loop ;
+struct
+  i8% field sockaddr_in>sin_len
+  i8% field sockaddr_in>sin_family
+  i16% field sockaddr_in>sin_port
+  i32% field sockaddr_in>sin_addr
+end-struct sockaddr_in%
 
+1 constant SOCK_STREAM
+2 constant AF_INET
+1 constant SOL_SOCKET
+2 constant SO_REUSEADDR
 
 
 200 ms
 ok
 )";
 
-
-void setup() {
+void setup()
+{
   cell_t *heap = (cell_t *) malloc(HEAP_SIZE);
   Serial.begin(115200);
+  esp_netif_init();
   ueforth(heap, boot, sizeof(boot));
 }
 
-void loop() {
+void loop()
+{
 }
