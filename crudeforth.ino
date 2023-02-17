@@ -9,6 +9,7 @@
 #include "exception_names.h"
 
 typedef intptr_t cell_t;
+//WiFiServer server(80);
 
 extern "C" {
   void panic_print_str(const char *str);
@@ -57,7 +58,10 @@ void register_exception_handlers(void)
 #define FIND(name) find(name, sizeof(name) - 1)
 #define LOWER(ch) ((ch) & 0x5F)
 
-//  X("ARSHIFT", ARSHIFT, tos = *sp >> tos; --sp) \
+
+//  X("SW!", SWSTORE, *(int16_t *)tos = *sp--; DROP) \
+//  X("SW@", SWFETCH, tos = *(int16_t *)tos) \
+// X("server.begin", SERVERBEGIN, server.begin(tos); DROP) \
 
 #define OPCODE_LIST \
   X("'DOCOL", TICKDOCOL, DUP; tos = (cell_t)&&OP_DOCOLON) \
@@ -120,7 +124,6 @@ void register_exception_handlers(void)
   X("WiFi.begin", WIFIBEGIN, *sp = (cell_t)WiFi.begin(*(const char **)sp, (const char *)tos); DROP) \
   X("WiFi.status", WIFISTATUS, DUP; tos = WiFi.status()) \
   X("WiFi.localIP", WIFILOCALIP, DUP; tos = FromIP(WiFi.localIP())) \
-  X("server.begin", SERVERBEGIN, server.begin(tos); DROP) \
   X("pinMode", PINMODE, pinMode((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
   X("digitalWrite", DIGITALWRITE, digitalWrite((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
   X("WRITE-FILE", WRITE_FILE, cell_t fd = tos; DROP; cell_t len = tos; DROP; \
@@ -150,8 +153,6 @@ cell_t FromIP(IPAddress ip) {
   ret = (ret << 8) | ip[0];
   return ret;
 }
-
-WiFiServer server(80);
 
 cell_t convert(const char *pos, cell_t n, cell_t *ret)
 {
