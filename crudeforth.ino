@@ -495,8 +495,12 @@ variable hld
 : u. ( u -- ) <# #s #> type space ;
 : #n ( u n -- u )  0 ?do # loop ;
 : u.0 ( u n -- )  <# 1- #n #s #> type ;
-: . ( w -- ) base @ 10 xor if u. else str type space then ;
+: .. ( n -- ) str type ;
+: . ( w -- ) base @ 10 xor if u. else .. space then ;
 : u.8hex  ( u n -- ) base @ >r   hex 8 u.0    r> base ! ;
+: ip# ( n -- n ) dup 255 and .. [char] . emit 8 rshift ;
+: ip. ( n -- ) ip# ip# ip# 255 and . ;
+: ip? ( -- ) wifi.localip ip. ;
 
 \ Strings
 : parse-quote ( -- a n ) [char] " parse ;
