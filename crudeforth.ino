@@ -301,6 +301,7 @@ void ueforth(void *here, const char *src, cell_t src_len)
   COMMA(ip);
 
   if (setjmp(g_forth_fault)) {
+    delay(1000);
     rp = *g_sys.throw_handler;
     *g_sys.throw_handler = (cell_t *) *rp--;
     sp = (cell_t *) *rp--;
