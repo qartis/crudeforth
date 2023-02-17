@@ -135,6 +135,7 @@ void register_exception_handlers(void)
   X("SOCKET", SOCKET, tos = socket(sp[-1], sp[0], tos); sp -= 2) \
   X("BIND", BIND, tos = bind(sp[-1], (sockaddr *)sp[0], tos); sp -= 2) \
   X("NON-BLOCK", NON_BLOCK, tos = fcntl(tos, F_SETFL, O_NONBLOCK); tos = tos < 0 ? errno : 0) \
+  X("CLOSE-FILE", CLOSE_FILE, tos = close(tos)) \
   X("DD", DD, for(cell_t *start = (cell_t *)here + STACK_SIZE + STACK_SIZE; start < g_sys.here; start++) { printf("%08x: %08x\n", start, *start); } ) \
 
 struct {
@@ -613,6 +614,9 @@ enb PINMODE_OUTPUT pinmode
 : ->addr! ( n a --  ) 4 + ! ;
 : ->h_addr ( hostent -- n ) 2 cells + 8 + @ @ @ ;
 
+\ Klaus Schleisiek's "Poor man's case"
+: ?exit ( flag -- ) if rdrop exit then ;
+: case? ( n1 n2 -- n1 ff | tf ) over = dup if nip then ;
 
 \ Merge serial and telnet (super sloppy)
 -1 value sockfd
@@ -620,24 +624,24 @@ enb PINMODE_OUTPUT pinmode
 sockaddr serversock
 sockaddr clientsock
 variable client-len
-
 -1 value telnet-c
 
-: telnet-key ( -- n ) telnet-c    -1 to telnet-c ;
 : client-connected ( -- n ) clientfd -1 <> ;
-: client-reset ( -- ) -1 to clientfd ;
+: client-reset ( -- ) clientfd close-file drop -1 to clientfd ;
 : telnet-c-valid ( -- flag ) telnet-c -1 <> ;
 : telnet-c-reset ( -- ) -1 to telnet-c ;
+: telnet-key ( -- n ) ['] telnet-c >value uc@ telnet-c-reset ;
+
+: handle-telnet-read ( n -- )
+    0 case? if telnet-c-reset client-reset exit then
+   -1 case? if telnet-c-reset exit then
+    drop
+;
 
 : telnet-tryreadc ( -- )
-    client-connected invert if exit then
-
-    0 >r
-    clientfd r@ 1 read-file
-    r> swap
-    ?dup 0= if client-reset exit then
-    -1 = if exit then
-    to telnet-c
+    client-connected invert ?exit
+    clientfd ['] telnet-c >value 1 read-file
+    handle-telnet-read
 ;
 
 : telnet-key? ( -- flag )
@@ -651,7 +655,7 @@ variable client-len
 : try-telnet-type ( addr u -- ) clientfd -rot write-file drop ;
 
 : poll-for-connection
-    client-connected if exit then
+    client-connected ?exit
     sockfd clientsock client-len sockaccept to clientfd
     clientfd non-block drop
 ;
@@ -659,12 +663,8 @@ variable client-len
 :noname ( -- n ) \ telnet-aware key
     begin
         poll-for-connection
-        skey? if
-            skey exit
-        then
-        telnet-key? if
-            telnet-key exit
-        then
+        skey? if skey exit then
+        telnet-key? if telnet-key exit then
     again ; is key
 :noname ( n n -- ) 2dup stype try-telnet-type ; is type
 
