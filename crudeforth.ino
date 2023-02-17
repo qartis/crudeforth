@@ -558,22 +558,6 @@ create input-buffer   input-limit allot
 : .s ." < " depth . ." > " depth 0 = if exit then depth 0 do sp0 i 1 + cells + @ . loop cr ;
 : forget  ' dup >name drop 'here ! >link 'latest ! ;
 
-\ Structs
-: struct  ( -- offset ) 0 ;
-: end-struct  ( offset "name" -- ) constant ;
-: i8%  ( -- size ) 1 ;
-: i16%  ( -- size ) 2 ;
-: i32%  ( -- size ) 4 ;
-: field  ( offset1 size "name" -- offset2 ) create swap dup , + does> @ + ;
-
-struct
-  i8% field sockaddr_in>sin_len
-  i8% field sockaddr_in>sin_family
-  i16% field sockaddr_in>sin_port
-  i32% field sockaddr_in>sin_addr
-end-struct sockaddr_in%
-
-
 \ Sockets
 1 constant SOCK_STREAM
 2 constant AF_INET
