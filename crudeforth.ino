@@ -562,12 +562,6 @@ create input-buffer   input-limit allot
 : .s ." < " depth . ." > " depth 0 = if exit then depth 0 do sp0 i 1 + cells + @ . loop cr ;
 : forget  ' dup >name drop 'here ! >link 'latest ! ;
 
-\ Sockets
-1 constant SOCK_STREAM
-2 constant AF_INET
-1 constant SOL_SOCKET
-2 constant SO_REUSEADDR
-
 
 \ Motors
 2  constant ena 0 constant in1  4 constant in2
@@ -606,7 +600,94 @@ enb PINMODE_OUTPUT pinmode
 
 
 
+\ Sockets
+1 constant SOCK_STREAM
+2 constant AF_INET
+1 constant SOL_SOCKET
+16 constant sizeof(sockaddr_in)
+
+: bs, ( n -- ) dup 8 rshift c, c, ;
+: s, ( n -- ) dup c, 8 rshift c, ;
+: l, ( n -- ) dup s, 16 rshift s, ;
+: sockaddr   create 16 c, AF_INET c, 0 bs, 0 l, 0 l, 0 l, ;
+: ->port@ ( a -- n ) 2 + >r r@ c@ 8 lshift r> 1+ c@ + ;
+: ->port! ( n a --  ) 2 + >r dup 8 rshift r@ c! r> 1+ c! ;
+: ->addr@ ( a -- n ) 4 + u@ ;
+: ->addr! ( n a --  ) 4 + ! ;
+: ->h_addr ( hostent -- n ) 2 cells + 8 + @ @ @ ;
+
+
+\ Merge serial and telnet (super sloppy)
+-1 value sockfd
+-1 value clientfd
+sockaddr serversock
+sockaddr clientsock
+variable client-len
+
+-1 value telnet-c
+
+: telnet-key ( -- n ) telnet-c    -1 to telnet-c ;
+: client-connected ( -- n ) clientfd -1 <> ;
+: client-reset ( -- ) -1 to clientfd ;
+: telnet-c-valid ( -- flag ) telnet-c -1 <> ;
+: telnet-c-reset ( -- ) -1 to telnet-c ;
+
+: telnet-tryreadc ( -- )
+    client-connected invert if exit then
+
+    0 >r
+    clientfd r@ 1 read-file
+    r> swap
+    ?dup 0= if client-reset exit then
+    -1 = if exit then
+    to telnet-c
+;
+
+: telnet-key? ( -- flag )
+    telnet-c-valid if -1 exit then
+
+    telnet-c-reset
+    telnet-tryreadc
+    telnet-c-valid
+;
+
+: try-telnet-type ( addr u -- ) clientfd -rot write-file drop ;
+
+: poll-for-connection
+    client-connected if exit then
+    sockfd clientsock client-len sockaccept to clientfd
+    clientfd non-block drop
+;
+
+:noname ( -- n ) \ telnet-aware key
+    begin
+        poll-for-connection
+        skey? if
+            skey exit
+        then
+        telnet-key? if
+            telnet-key exit
+        then
+    again ; is key
+:noname ( n n -- ) 2dup stype try-telnet-type ; is type
+
+: server ( n -- )
+  serversock ->port!
+  AF_INET SOCK_STREAM 0 socket to sockfd
+  sockfd serversock sizeof(sockaddr_in) bind throw
+  sockfd 1 listen throw
+  sockfd non-block throw ;
+
+: wifi ." wifi init" cr z" 1A90FF" z" thepassword" wifi.begin drop ;
+
+
 motors-init
+wifi
+500 ms
+ip?
+
+1337 server
+
 200 ms
 ok
 )";
