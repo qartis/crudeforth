@@ -577,8 +577,6 @@ create input-buffer   input-limit allot
 80 value ramptime
 500 value steptime
 
-pwmchan pwmfreq 12 ( 12bit ) ledcsetup drop
-ena pwmchan ledcattachpin
 
 in1 PINMODE_OUTPUT pinmode in2 PINMODE_OUTPUT pinmode
 in3 PINMODE_OUTPUT pinmode in4 PINMODE_OUTPUT pinmode
@@ -597,11 +595,14 @@ enb PINMODE_OUTPUT pinmode
 : step  ( -- )  rampduty pwmduty   ramptime ms   driveduty pwmduty  steptime ms   0 pwmduty ;
 : forw  ( -- ) in1 hi in2 lo ;
 : back  ( -- ) in1 lo in2 hi ;
+: motors-init
+    pwmchan pwmfreq 12 ( 12bit ) ledcsetup drop
+    ena pwmchan ledcattachpin
+    forw stop ;
 
-forw
-stop
 
 
+motors-init
 200 ms
 ok
 )";
