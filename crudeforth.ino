@@ -456,7 +456,7 @@ variable handler
 handler 'throw-handler !
 : catch ( xt -- n )  sp@ >r handler @ >r rp@ handler ! execute r> handler ! r> drop 0 ;
 : throw ( n -- )     dup if handler @ rp! r> handler !  r> swap >r sp! drop r> else drop then ;
-' throw 'notfound !
+\ ' throw 'notfound !
 
 \ Values
 : value ( n -- ) constant ;
@@ -511,9 +511,6 @@ variable hld
 : ."   postpone s" state @ if postpone type else type then ; immediate
 : z"   postpone s" state @ if postpone drop else drop then ; immediate
 
-\ Better Errors
-: notfound ( a n n -- )  if cr ." ERROR: " type ."  NOT FOUND!" cr -1 throw then ;
-' notfound 'notfound !
 
 \ Examine Dictionary
 \ TODO: errors when decompiling:
@@ -689,6 +686,11 @@ ip?
 1337 server
 
 200 ms
+
+\ Better Errors
+: notfound ( a n n -- )  if cr ." ERROR: " type ."  NOT FOUND!" cr -1 throw then ;
+' notfound 'notfound !
+
 ok
 )";
 
