@@ -464,6 +464,16 @@ handler 'throw-handler !
 : to ( n -- ) state @ if postpone ['] postpone >value postpone !
                       else ' >value ! then ; immediate
 
+\ Deferred Words
+: defer ( "name" -- ) create 0 , does> @ dup 0= throw execute ;
+: is ( xt "name" -- ) postpone to ; immediate
+
+defer key
+' skey is key
+
+defer type
+' stype is type
+
 : emit ( n -- ) >r rp@ 1 type rdrop ;
 : space bl emit ;
 : cr nl emit ;
