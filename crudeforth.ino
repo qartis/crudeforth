@@ -82,22 +82,24 @@ void register_exception_handlers(void)
   X("SWAP", SWAP, w = tos; tos = *sp; *sp = w) \
   X("OVER", OVER, DUP; tos = sp[-1]) \
   X("DROP", DROP, DROP) \
-  X("@", AT, tos = *(cell_t *)tos) \
-  X("SW@", SWAT, tos = *(int16_t *)tos) \
-  X("UW@", UWAT, tos = *(uint16_t *)tos) \
-  X("C@", CAT, tos = *(uint8_t *)tos) \
-  X("!", STORE, *(cell_t *)tos = *sp--; DROP) \
-  X("W!", WSTORE, *(int16_t *)tos = *sp--; DROP) \
+  X("@",   FETCH,   tos = *(cell_t *)tos) \
+  X("U@",  UFETCH,  tos = *(uint32_t *)tos) \
+  X("W@",  WFETCH,  tos = *(int16_t *)tos) \
+  X("UW@", UWFETCH, tos = *(uint16_t *)tos) \
+  X("C@",  CFETCH,  tos = *(int8_t *)tos) \
+  X("UC@", UCFETCH, tos = *(uint8_t *)tos) \
+  X("!",   STORE, *(cell_t *)tos = *sp--; DROP) \
+  X("W!", WSTORE, *(uint16_t *)tos = *sp--; DROP) \
   X("C!", CSTORE, *(uint8_t *)tos = *sp--; DROP) \
-  X("SP@", SPAT, DUP; tos = (cell_t) sp) \
+  X("SP@", SPFETCH, DUP; tos = (cell_t) sp) \
   X("SP!", SPSTORE, sp = (cell_t *) tos; DROP) \
-  X("RP@", RPAT, DUP; tos = (cell_t) rp) \
+  X("RP@", RPFETCH, DUP; tos = (cell_t) rp) \
   X("RP!", RPSTORE, rp = (cell_t *) tos; DROP) \
   X(">R", TOR, ++rp; *rp = tos; DROP) \
   X(",", COMMA_TOKEN, COMMA(tos); DROP) \
   X("'", TICK, DUP; DUP; tos = parse(' ', (cell_t *)sp); tos = find((const char *)*sp, tos); *sp = tos; DROP) \
   X("R>", FROMR, DUP; tos = *rp; --rp) \
-  X("R@", RAT, DUP; tos = *rp) \
+  X("R@", RFETCH, DUP; tos = *rp) \
   X("EXECUTE", EXECUTE, w = tos; DROP; goto **(void **)w) \
   X("BRANCH", BRANCH, ip = (cell_t *)*ip) \
   X("0BRANCH", ZBRANCH, if (!tos) ip = (cell_t *)*ip; else ++ip; DROP) \
@@ -105,7 +107,7 @@ void register_exception_handlers(void)
   X("CELL", CELL, DUP; tos = sizeof(cell_t)) \
   X("FIND", FIND, tos = find((const char *)*sp, tos); --sp) \
   X("PARSE", PARSE, DUP; tos = parse(tos, (cell_t *)sp)) \
-  X("CREATE", CREATE, create((const char *)sp[-1], sp[0], (void *)tos); DROP; DROP; DROP) \
+  X("(CREATE)", PAREN_CREATE, create((const char *)sp[-1], sp[0], (void *)tos); DROP; DROP; DROP) \
   X("IMMEDIATE", IMMEDIATE, IMMEDIATE()) \
   X("'SYS", SYS, DUP; tos = (cell_t)&g_sys) \
   X("EVALUATE1", EVALUATE1, \
@@ -113,9 +115,9 @@ void register_exception_handlers(void)
       w = *sp; --sp; DROP; \
       if (w) goto **(void **)w) \
   X("EXIT", EXIT, ip = (cell_t *)*rp; --rp) \
-  X("KEY", KEY, while(!Serial.available()) {} DUP; tos = Serial.read()) \
-  X("KEY?", KEY_Q, DUP; tos = Serial.available()) \
-  X("TYPE", TYPE, {char buf[128];snprintf(buf, sizeof(buf), "%.*s", tos, (const uint8_t *)*sp);panic_print_str(buf);}/*Serial.write((const uint8_t *) *sp, tos); */--sp; DROP) /* to workaround deadlock when printing invalid strings */ \
+  X("SKEY", SKEY, while(!Serial.available()) {} DUP; tos = Serial.read()) \
+  X("SKEY?", SKEY_Q, DUP; tos = Serial.available()) \
+  X("STYPE", STYPE, {char buf[128];snprintf(buf, sizeof(buf), "%.*s", tos, (const uint8_t *)*sp);panic_print_str(buf);}/*Serial.write((const uint8_t *) *sp, tos); */--sp; DROP) /* to workaround deadlock when printing invalid strings */ \
   X("MS", MS, delay(tos); DROP) \
   X("BYE", BYE, ESP.restart()) \
   X("ledcSetup", LEDCSETUP, sp[-1] = ledcSetup(sp[-1], sp[0], tos); DROP; DROP) \
@@ -126,16 +128,14 @@ void register_exception_handlers(void)
   X("WiFi.localIP", WIFILOCALIP, DUP; tos = FromIP(WiFi.localIP())) \
   X("pinMode", PINMODE, pinMode((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
   X("digitalWrite", DIGITALWRITE, digitalWrite((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
-  X("WRITE-FILE", WRITE_FILE, cell_t fd = tos; DROP; cell_t len = tos; DROP; \
-    tos = write(fd, (void *)tos, len); tos = (tos != len) ? errno : 0) \
-  X("READ-FILE", READ_FILE, cell_t fd = tos; DROP; cell_t len = tos; DROP; \
-    tos = read(fd, (void *)tos, len); DUP; tos = tos < 0 ? errno : 0) \
-  X("LISTEN", LISTEN, tos = listen(*sp, tos); --sp) \
-  X("SOCKACCEPT", SOCKACCEPT, cell_t fd = tos; DROP; void *addr = (void *)tos; DROP; tos = accept(fd, (sockaddr *)addr, (socklen_t *) tos)) \
-  X("SOCKET", SOCKET, cell_t proto = tos; DROP; cell_t type = tos; DROP; tos = socket(tos, type, proto)) \
-  X("BIND", BIND, cell_t fd = tos; DROP; sockaddr *addr = (sockaddr *)tos; DROP; tos = bind(fd, addr, tos)) \
+  X("WRITE-FILE", WRITE_FILE, tos = write(sp[-1], (void *)sp[0], tos); sp -= 2; tos = (tos == -1) ? errno : 0) \
+  X("READ-FILE", READ_FILE, tos = read(sp[-1], (void *)sp[0], tos); sp -= 2) \
+  X("LISTEN", LISTEN, tos = listen(sp[0], tos); --sp) \
+  X("SOCKACCEPT", SOCKACCEPT, tos = accept(sp[-1], (sockaddr *)sp[0], (socklen_t *)tos); sp -= 2) \
+  X("SOCKET", SOCKET, tos = socket(sp[-1], sp[0], tos); sp -= 2) \
+  X("BIND", BIND, tos = bind(sp[-1], (sockaddr *)sp[0], tos); sp -= 2) \
+  X("NON-BLOCK", NON_BLOCK, tos = fcntl(tos, F_SETFL, O_NONBLOCK); tos = tos < 0 ? errno : 0) \
   X("DD", DD, for(cell_t *start = (cell_t *)here + STACK_SIZE + STACK_SIZE; start < g_sys.here; start++) { printf("%08x: %08x\n", start, *start); } ) \
-
 
 struct {
   const char *tib;
@@ -154,7 +154,7 @@ cell_t FromIP(IPAddress ip) {
   return ret;
 }
 
-cell_t convert(const char *pos, cell_t n, cell_t *ret)
+cell_t parseint(const char *pos, cell_t n, cell_t *ret)
 {
   *ret = 0;
   cell_t negate = 0;
@@ -255,7 +255,7 @@ cell_t *evaluate1(cell_t *sp)
     }
   } else {
     cell_t n;
-    cell_t ok = convert((const char *) name, len, &n);
+    cell_t ok = parseint((const char *) name, len, &n);
     if (ok) {
       if (g_sys.state) {
         COMMA(g_sys.DOLIT_XT);
@@ -322,7 +322,7 @@ void ueforth(void *here, const char *src, cell_t src_len)
 }
 
 const char boot[] = R"(
-32 PARSE header 'DOCOL CREATE ' DOLIT , 32 , ' PARSE , ' DOLIT , 'DOCOL , ' CREATE , ' EXIT ,
+32 PARSE header 'DOCOL (CREATE) ' DOLIT , 32 , ' PARSE , ' DOLIT , 'DOCOL , ' (CREATE) , ' EXIT ,
 header : ' header , ' DOLIT , -1 , ' DOLIT , 'SYS 3 CELL * + , ' ! , ' EXIT ,
 header ; ' DOLIT , ' EXIT , ' , , ' DOLIT , 0 , ' DOLIT , 'SYS 3 CELL * + , ' ! , ' EXIT , IMMEDIATE
 
