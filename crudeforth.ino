@@ -9,7 +9,6 @@
 #include "exception_names.h"
 
 typedef intptr_t cell_t;
-//WiFiServer server(80);
 
 extern "C" {
   void panic_print_str(const char *str);
@@ -336,16 +335,17 @@ header ; ' DOLIT , ' EXIT , ' , , ' DOLIT , 0 , ' DOLIT , 'SYS 3 CELL * + , ' ! 
 : rdrop ( r: n n -- ) r> r> drop >r ;
 : rot ( a b c -- c a b ) >r swap r> swap ;
 : -rot ( a b c -- b c a ) swap >r swap r> ;
-: u/mod 2dup umod -rot u/ ;
+: u/mod ( n n -- n ) 2dup umod -rot u/ ;
 : invert ( n -- ~n ) -1 xor ;
 : negate ( n -- -n ) invert 1 + ;
 : - ( n n -- n ) negate + ;
-: 0= 0 = ;
-: 0< 0 < ;
+: 0= ( n -- n ) 0 = ;
+: 0< ( n -- n ) 0 < ;
 : > ( a b -- a>b ) swap < ;
+: >= ( n n -- n ) < invert ;
 : <> ( a b -- a!=b ) = invert ;
-: 1+ 1 + ;
-: 1- 1 - ;
+: 1+ ( n -- n ) 1 + ;
+: 1- ( n -- n ) 1 - ;
 : +! ( n a -- ) swap over @ + swap ! ;
 
 \ Cells
@@ -379,7 +379,7 @@ header ; ' DOLIT , ' EXIT , ' , , ' DOLIT , 0 , ' DOLIT , 'SYS 3 CELL * + , ' ! 
 \ Quoting Words
 : bl  ( -- n ) 32 ;
 : nl  ( -- n ) 10 ;
-: ' bl parse 2dup find dup >r -rot r> 0= 'notfound @ execute 2drop ;
+: ' bl parse 2dup find dup >r -rot r> 0= 'notfound @ EXECUTE 2drop ;
 : aliteral [ ' dolit , ' dolit , ' , , ] , ;
 : ['] ' aliteral ; immediate
 : char bl parse drop c@ ;
@@ -455,9 +455,8 @@ rp@ constant rp0
 \ Exceptions
 variable handler
 handler 'throw-handler !
-: catch ( xt -- n )  sp@ >r handler @ >r rp@ handler ! execute r> handler ! r> drop 0 ;
+: catch ( xt -- n )  sp@ >r handler @ >r rp@ handler ! EXECUTE r> handler ! r> drop 0 ;
 : throw ( n -- )     dup if handler @ rp! r> handler !  r> swap >r sp! drop r> else drop then ;
-\ ' throw 'notfound !
 
 \ Values
 : value ( n -- ) constant ;
@@ -466,7 +465,7 @@ handler 'throw-handler !
                       else ' >value ! then ; immediate
 
 \ Deferred Words
-: defer ( "name" -- ) create 0 , does> @ dup 0= throw execute ;
+: defer ( "name" -- ) create 0 , does> @ dup 0= throw EXECUTE ;
 : is ( xt "name" -- ) postpone to ; immediate
 
 defer key
