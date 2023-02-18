@@ -542,23 +542,21 @@ create input-buffer   input-limit allot
 : accept ( a n -- n ) 0 swap begin 2dup < while
    key dup nl = if 2drop nip exit then
    >r rot r> over c! 1+ -rot swap 1+ swap repeat drop nip ;
-: tib ( -- a ) 'tib @ ;
-: tib-setup   input-buffer 'tib ! ;
-: refill   tib-setup tib input-limit accept #tib ! 0 >in ! -1 ;
+: refill ( -- n ) input-buffer 'tib !
+   'tib @ input-limit accept #tib ! 0 >in ! ;
 
 \ REPL
 : prompt   state @ if ."  compiled" else ."  ok" then cr ;
-: evaluate-buffer   begin >in @ #tib @ < while evaluate1 repeat ;
-: evaluate ( a n -- ) 'tib @ >r #tib @ >r >in @ >r
-                      #tib ! 'tib ! 0 >in ! evaluate-buffer
-                      r> >in ! r> #tib ! r> 'tib ! ;
-: query   begin ['] evaluate-buffer catch
-          if 0 state ! sp0 sp! rp0 rp! ." ERROR" cr then
-          prompt refill drop again ;
-: ok   ." uEForth" cr prompt refill drop query ;
-: .s ." < " depth . ." > " depth 0 = if exit then depth 0 do sp0 i 1 + cells + @ . loop cr ;
+: underflow?   sp@ sp0 < if ." STACK UNDERFLOW " -4 throw then ;
+: interpret   begin >in @ #tib @ < while EVALUATE1 underflow? repeat ;
+: quit ( -- ) sp0 sp! rp0 rp! postpone [
+              begin
+                 prompt refill
+                 ['] interpret catch
+                 if ." ERROR" cr sp0 sp! rp0 rp! then
+              again ;
+: .s ." < " depth . ." > " depth 0 ?do sp0 i 1 + cells + @ . loop cr ;
 : forget  ' dup >name drop 'here ! >link 'latest ! ;
-
 
 \ Motors
 2  constant ena 0 constant in1  4 constant in2
@@ -690,7 +688,7 @@ ip?
 : notfound ( a n n -- )  if cr ." ERROR: " type ."  NOT FOUND!" cr -1 throw then ;
 ' notfound 'notfound !
 
-ok
+quit
 )";
 
 
