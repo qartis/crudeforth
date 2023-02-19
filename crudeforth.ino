@@ -51,16 +51,10 @@ void register_exception_handlers(void)
 #define DUP *++sp = tos
 #define DROP tos = *sp--
 #define COMMA(n) *g_sys.here++ = ((cell_t)n)
-#define IMMEDIATE() g_sys.latest[-1] |= FLAG_IMMEDIATE
 #define NEXT w = *ip++; goto **(void **)w
 #define CELL_LEN(n) (((n) + sizeof(cell_t) - 1) / sizeof(cell_t))
 #define FIND(name) find(name, sizeof(name) - 1)
 #define LOWER(ch) ((ch) & 0x5F)
-
-
-//  X("SW!", SWSTORE, *(int16_t *)tos = *sp--; DROP) \
-//  X("SW@", SWFETCH, tos = *(int16_t *)tos) \
-// X("server.begin", SERVERBEGIN, server.begin(tos); DROP) \
 
 #define OPCODE_LIST \
   X("'DOCOL", TICKDOCOL, DUP; tos = (cell_t)&&OP_DOCOLON) \
@@ -107,7 +101,7 @@ void register_exception_handlers(void)
   X("FIND", FIND, tos = find((const char *)*sp, tos); --sp) \
   X("PARSE", PARSE, DUP; tos = parse(tos, (cell_t *)sp)) \
   X("(CREATE)", PAREN_CREATE, create((const char *)sp[-1], sp[0], (void *)tos); DROP; DROP; DROP) \
-  X("IMMEDIATE", IMMEDIATE, IMMEDIATE()) \
+  X("IMMEDIATE", IMMEDIATE, g_sys.latest[-1] |= FLAG_IMMEDIATE) \
   X("'SYS", SYS, DUP; tos = (cell_t)&g_sys) \
   X("EVALUATE1", EVALUATE1, \
       DUP; sp = (cell_t *)evaluate1((cell_t *)sp); \
@@ -119,14 +113,14 @@ void register_exception_handlers(void)
   X("STYPE", STYPE, {char buf[128];snprintf(buf, sizeof(buf), "%.*s", tos, (const uint8_t *)*sp);panic_print_str(buf);}/*Serial.write((const uint8_t *) *sp, tos); */--sp; DROP) /* to workaround deadlock when printing invalid strings */ \
   X("MS", MS, delay(tos); DROP) \
   X("BYE", BYE, ESP.restart()) \
-  X("ledcSetup", LEDCSETUP, sp[-1] = ledcSetup(sp[-1], sp[0], tos); DROP; DROP) \
-  X("ledcAttachPin", LEDCATTACHPIN, ledcAttachPin(*sp, tos); DROP; DROP) \
-  X("ledcWrite", LEDCWRITE, ledcWrite(*sp, tos); DROP; DROP) \
-  X("WiFi.begin", WIFIBEGIN, *sp = (cell_t)WiFi.begin(*(const char **)sp, (const char *)tos); DROP) \
-  X("WiFi.status", WIFISTATUS, DUP; tos = WiFi.status()) \
-  X("WiFi.localIP", WIFILOCALIP, DUP; tos = FromIP(WiFi.localIP())) \
-  X("pinMode", PINMODE, pinMode((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
-  X("digitalWrite", DIGITALWRITE, digitalWrite((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
+  X("LEDCSETUP", LEDCSETUP, sp[-1] = ledcSetup(sp[-1], sp[0], tos); DROP; DROP) \
+  X("LEDCATTACHPIN", LEDCATTACHPIN, ledcAttachPin(*sp, tos); DROP; DROP) \
+  X("LEDCWRITE", LEDCWRITE, ledcWrite(*sp, tos); DROP; DROP) \
+  X("WIFI.BEGIN", WIFIBEGIN, *sp = (cell_t)WiFi.begin(*(const char **)sp, (const char *)tos); DROP) \
+  X("WIFI.STATUS", WIFISTATUS, DUP; tos = WiFi.status()) \
+  X("WIFI.LOCALIP", WIFILOCALIP, DUP; tos = FromIP(WiFi.localIP())) \
+  X("PINMODE", PINMODE, pinMode((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
+  X("DIGITALWRITE", DIGITALWRITE, digitalWrite((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
   X("WRITE-FILE", WRITE_FILE, tos = write(sp[-1], (void *)sp[0], tos); sp -= 2; tos = (tos == -1) ? errno : 0) \
   X("READ-FILE", READ_FILE, tos = read(sp[-1], (void *)sp[0], tos); sp -= 2) \
   X("LISTEN", LISTEN, tos = listen(sp[0], tos); --sp) \
@@ -469,10 +463,10 @@ handler 'throw-handler !
 : is ( xt "name" -- ) postpone to ; immediate
 
 defer key
-' skey is key
+' SKEY is key
 
 defer type
-' stype is type
+' STYPE is type
 
 : emit ( n -- ) >r rp@ 1 type rdrop ;
 : space bl emit ;
@@ -497,7 +491,7 @@ variable hld
 : u.0 ( u n -- )  <# 1- #n #s #> type ;
 : .. ( n -- ) str type ;
 : . ( w -- ) base @ 10 xor if u. else .. space then ;
-: u.8hex  ( u n -- ) base @ >r   hex 8 u.0    r> base ! ;
+: u.8$  ( u -- ) base @ >r   hex 8 u.0    r> base ! ;
 : ip# ( n -- n ) dup 255 and .. [char] . emit 8 rshift ;
 : ip. ( n -- ) ip# ip# ip# 255 and . ;
 : ip? ( -- ) wifi.localip ip. ;
@@ -517,21 +511,21 @@ variable hld
 \ - words containing ." and s"
 \ - loops/0branch
 : builtin? ( xt -- ) @ 'DOCOL <> ;
-: see. ( xt -- ) >name type space ;
+: see. ( xt -- ) dup >name nip if >name type space else ." <noname at " u.8$ ." >" then ;
 : see-one ( xt -- xt+1 )  dup @ dup ['] DOLIT = if drop cell+ dup @ . else see. then cell+ ;
 : exit= ( xt -- ) ['] exit = ;
 : see-loop   >:body begin dup @ exit= invert while see-one repeat ;
 : see-immediate?   immediate? if ."  immediate" then ;
-: see-:   ['] : see.  dup see. space dup see-loop drop  ['] ; see.  see-immediate? ;
+: see-:   ['] : see.  dup see. space dup see-loop drop  ['] ; see. see-immediate? ;
 : see   ' dup builtin? if dup see. ." is builtin" else see-: then cr ;
 : words   latest begin dup see. >link dup 0= until drop cr ;
 
 \ Examine Memory
 : ?dup  ( n -- 0 | n n ) dup if dup then ;
 : pick  ( n -- n ) 1+ cells sp@ swap - @ ;
-: printprim  ( a -- ) ['] dd begin dup @ 2 pick = if ." &&DO_" >name type drop exit then >link ?dup 0= until  u.8hex ;
-: printword  ( xt -- )  latest begin 2dup = if ." --> " >name type drop exit then >link ?dup 0= until printprim ;
-: dumpaddr  ( addr -- ) dup u.8hex space @ printword cr ;
+: printprim  ( a -- ) ['] dd begin dup @ 2 pick = if ." &&DO_" >name type drop exit then >link ?dup 0= until u.8$ ;
+: printword  ( xt -- )  latest begin 2dup = if ." --> " see. drop exit then >link ?dup 0= until printprim ;
+: dumpaddr  ( addr -- ) dup u.8$ space @ printword cr ;
 : bounds over + swap ;
 : dump  ( addr ncells -- ) cells bounds do i dumpaddr cell +loop ;
 : rawdump ( a n -- )  cr 0 do i 16 mod 0= if cr then dup i + c@ 2 u.0 space loop drop cr ;
@@ -630,9 +624,7 @@ variable client-len
 : telnet-key ( -- n ) ['] telnet-c >value uc@ telnet-c-reset ;
 
 : handle-telnet-read ( n -- )
-    0 case? if telnet-c-reset client-reset exit then
-   -1 case? if telnet-c-reset exit then
-    drop
+    0= if client-reset then
 ;
 
 : telnet-tryreadc ( -- )
@@ -660,10 +652,10 @@ variable client-len
 :noname ( -- n ) \ telnet-aware key
     begin
         poll-for-connection
-        skey? if skey exit then
+        SKEY? if SKEY exit then
         telnet-key? if telnet-key exit then
     again ; is key
-:noname ( n n -- ) 2dup stype try-telnet-type ; is type
+:noname ( n n -- ) 2dup STYPE try-telnet-type ; is type
 
 : server ( n -- )
   serversock ->port!
