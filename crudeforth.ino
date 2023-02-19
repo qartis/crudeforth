@@ -615,13 +615,13 @@ enb PINMODE_OUTPUT pinmode
 sockaddr serversock
 sockaddr clientsock
 variable client-len
--1 value telnet-c
+variable telnet-c -1 telnet-c !
 
 : client-connected ( -- n ) clientfd -1 <> ;
 : client-reset ( -- ) clientfd close-file drop -1 to clientfd ;
-: telnet-c-valid ( -- flag ) telnet-c -1 <> ;
-: telnet-c-reset ( -- ) -1 to telnet-c ;
-: telnet-key ( -- n ) ['] telnet-c >value uc@ telnet-c-reset ;
+: telnet-c-valid ( -- flag ) telnet-c @ -1 <> ;
+: telnet-c-reset ( -- ) -1 telnet-c ! ;
+: telnet-key ( -- n ) telnet-c uc@ telnet-c-reset ;
 
 : handle-telnet-read ( n -- )
     0= if client-reset then
@@ -629,7 +629,7 @@ variable client-len
 
 : telnet-tryreadc ( -- )
     client-connected invert ?exit
-    clientfd ['] telnet-c >value 1 read-file
+    clientfd telnet-c 1 read-file
     handle-telnet-read
 ;
 
