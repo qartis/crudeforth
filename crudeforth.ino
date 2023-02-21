@@ -129,6 +129,7 @@ void register_exception_handlers(void)
   X("BIND", BIND, tos = bind(sp[-1], (sockaddr *)sp[0], tos); sp -= 2) \
   X("NON-BLOCK", NON_BLOCK, tos = fcntl(tos, F_SETFL, O_NONBLOCK); tos = tos < 0 ? errno : 0) \
   X("CLOSE-FILE", CLOSE_FILE, tos = close(tos)) \
+  X("MS-TICKS", MS_TICKS, DUP; tos = millis()) \
   X("DD", DD, for(cell_t *start = (cell_t *)here + STACK_SIZE + STACK_SIZE; start < g_sys.here; start++) { printf("%08x: %08x\n", start, *start); } ) \
 
 struct {
@@ -536,6 +537,36 @@ create input-buffer   input-limit allot
 : refill ( -- n ) input-buffer 'tib !
    'tib @ input-limit accept #tib ! 0 >in ! ;
 
+\ Tasks
+variable task-list
+: .tasks   task-list @ begin dup 5 cells - see. @ dup task-list @ = until drop ;
+: pause
+  rp@ sp@ task-list @ cell+ !
+  task-list @ @ task-list !
+  task-list @ cell+ @ sp! rp! ;
+: task ( xt dsz rsz "name" )
+   create here >r 0 , 0 , ( link, sp )
+   swap here cell+ r@ cell+ ! cells allot
+   here r@ cell+ @ ! cells allot
+   dup 0= if drop else
+     here r@ cell+ @ @ ! ( set rp to point here )
+     , postpone pause ['] branch , here 3 cells - ,
+   then rdrop ;
+: start-task ( t -- )
+   task-list @ if
+     task-list @ @ over !
+     task-list @ !
+   else
+     dup task-list !
+     dup !
+   then ;
+
+0 0 0 task main-task  main-task start-task
+
+: ms ( n -- ) ms-ticks >r begin pause ms-ticks r@ - over >= until rdrop drop ;
+: printtask 0 begin pause ( ." loop " dup . ) 1 + 1000 ms again ;
+' printtask 10 10 task print-task print-task start-task
+
 \ REPL
 : prompt   state @ if ."  compiled" else ."  ok" then cr ;
 : underflow?   sp@ sp0 < if ." STACK UNDERFLOW " -4 throw then ;
@@ -583,8 +614,6 @@ enb PINMODE_OUTPUT pinmode
     pwmchan pwmfreq 12 ( 12bit ) ledcsetup drop
     ena pwmchan ledcattachpin
     forw stop ;
-
-
 
 \ Sockets
 1 constant SOCK_STREAM
