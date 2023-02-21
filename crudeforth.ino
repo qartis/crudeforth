@@ -462,11 +462,9 @@ handler 'throw-handler !
 : defer ( "name" -- ) create 0 , does> @ dup 0= throw EXECUTE ;
 : is ( xt "name" -- ) postpone to ; immediate
 
-defer key
-' SKEY is key
+defer key  ' SKEY is key
 
-defer type
-' STYPE is type
+defer type  ' STYPE is type
 
 : emit ( n -- ) >r rp@ 1 type rdrop ;
 : space bl emit ;
@@ -504,7 +502,6 @@ variable hld
        else dup here swap >r >r $place r> r> then ; immediate
 : ."   postpone s" state @ if postpone type else type then ; immediate
 : z"   postpone s" state @ if postpone drop else drop then ; immediate
-
 
 \ Examine Dictionary
 \ TODO: errors when decompiling:
@@ -592,22 +589,12 @@ enb PINMODE_OUTPUT pinmode
 \ Sockets
 1 constant SOCK_STREAM
 2 constant AF_INET
-1 constant SOL_SOCKET
 16 constant sizeof(sockaddr_in)
-
 : bs, ( n -- ) dup 8 rshift c, c, ;
 : s, ( n -- ) dup c, 8 rshift c, ;
 : l, ( n -- ) dup s, 16 rshift s, ;
-: sockaddr   create 16 c, AF_INET c, 0 bs, 0 l, 0 l, 0 l, ;
-: ->port@ ( a -- n ) 2 + >r r@ c@ 8 lshift r> 1+ c@ + ;
+: sockaddr   create sizeof(sockaddr_in) c, AF_INET c, 0 bs, 0 l, 0 l, 0 l, ;
 : ->port! ( n a --  ) 2 + >r dup 8 rshift r@ c! r> 1+ c! ;
-: ->addr@ ( a -- n ) 4 + u@ ;
-: ->addr! ( n a --  ) 4 + ! ;
-: ->h_addr ( hostent -- n ) 2 cells + 8 + @ @ @ ;
-
-\ Klaus Schleisiek's "Poor man's case"
-: ?exit ( flag -- ) if rdrop exit then ;
-: case? ( n1 n2 -- n1 ff | tf ) over = dup if nip then ;
 
 \ Merge serial and telnet (super sloppy)
 -1 value sockfd
@@ -617,37 +604,18 @@ sockaddr clientsock
 variable client-len
 variable telnet-c -1 telnet-c !
 
+: ?exit ( flag -- ) if rdrop exit then ;
 : client-connected ( -- n ) clientfd -1 <> ;
 : client-reset ( -- ) clientfd close-file drop -1 to clientfd ;
 : telnet-c-valid ( -- flag ) telnet-c @ -1 <> ;
 : telnet-c-reset ( -- ) -1 telnet-c ! ;
 : telnet-key ( -- n ) telnet-c uc@ telnet-c-reset ;
-
-: handle-telnet-read ( n -- )
-    0= if client-reset then
-;
-
-: telnet-tryreadc ( -- )
-    client-connected invert ?exit
-    clientfd telnet-c 1 read-file
-    handle-telnet-read
-;
-
-: telnet-key? ( -- flag )
-    telnet-c-valid if -1 exit then
-
-    telnet-c-reset
-    telnet-tryreadc
-    telnet-c-valid
-;
-
+: handle-telnet-read ( n -- ) 0= if client-reset then ;
+: telnet-tryreadc ( -- ) client-connected invert ?exit clientfd telnet-c 1 read-file handle-telnet-read ;
+: telnet-key? ( -- flag ) telnet-c-valid if -1 exit then telnet-c-reset telnet-tryreadc telnet-c-valid ;
 : try-telnet-type ( addr u -- ) clientfd -rot write-file drop ;
 
-: poll-for-connection
-    client-connected ?exit
-    sockfd clientsock client-len sockaccept to clientfd
-    clientfd non-block drop
-;
+: poll-for-connection ( -- ) client-connected ?exit sockfd clientsock client-len sockaccept to clientfd clientfd non-block drop ;
 
 :noname ( -- n ) \ telnet-aware key
     begin
@@ -682,7 +650,6 @@ ip?
 
 quit
 )";
-
 
 
 void setup()
