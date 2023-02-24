@@ -8,6 +8,9 @@
 #include <xtensa/xtensa_api.h>
 #include "exception_names.h"
 
+void camera_init(void);
+void startCameraServer(void);
+
 typedef intptr_t cell_t;
 
 extern "C" {
@@ -44,8 +47,8 @@ void register_exception_handlers(void)
 }
 
 
-#define HEAP_SIZE (100 * 1024)
-#define STACK_SIZE 512
+#define HEAP_SIZE (25 * 1024)
+#define STACK_SIZE 128
 #define FLAG_IMMEDIATE 1
 
 #define DUP *++sp = tos
@@ -119,6 +122,7 @@ void register_exception_handlers(void)
   X("WIFI.BEGIN", WIFIBEGIN, *sp = (cell_t)WiFi.begin(*(const char **)sp, (const char *)tos); DROP) \
   X("WIFI.STATUS", WIFISTATUS, DUP; tos = WiFi.status()) \
   X("WIFI.LOCALIP", WIFILOCALIP, DUP; tos = FromIP(WiFi.localIP())) \
+  X("WIFI.RSSI", WIFIRSSI, DUP; tos = WiFi.RSSI()) \
   X("PINMODE", PINMODE, pinMode((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
   X("DIGITALWRITE", DIGITALWRITE, digitalWrite((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
   X("WRITE-FILE", WRITE_FILE, tos = write(sp[-1], (void *)sp[0], tos); sp -= 2; tos = (tos == -1) ? errno : 0) \
@@ -130,6 +134,7 @@ void register_exception_handlers(void)
   X("NON-BLOCK", NON_BLOCK, tos = fcntl(tos, F_SETFL, O_NONBLOCK); tos = tos < 0 ? errno : 0) \
   X("CLOSE-FILE", CLOSE_FILE, tos = close(tos)) \
   X("MS-TICKS", MS_TICKS, DUP; tos = millis()) \
+  X("STARTCAMERASERVER", STARTCAMERASERVER, startCameraServer()) \
   X("DD", DD, for(cell_t *start = (cell_t *)here + STACK_SIZE + STACK_SIZE; start < g_sys.here; start++) { printf("%08x: %08x\n", start, *start); } ) \
 
 struct {
@@ -664,7 +669,7 @@ variable telnet-c -1 telnet-c !
 : wifi ." wifi init" cr z" 1A90FF" z" thepassword" wifi.begin drop ;
 
 
-motors-init
+\ motors-init
 wifi
 500 ms
 ip?
@@ -686,6 +691,8 @@ void setup()
   cell_t *heap = (cell_t *) malloc(HEAP_SIZE);
   Serial.begin(115200);
   esp_netif_init();
+//  WiFi.setSleep(false);
+  camera_init();
   ueforth(heap, boot, sizeof(boot));
 }
 
