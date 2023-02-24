@@ -5,11 +5,9 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <setjmp.h>
+#include "esp_camera.h"
 #include <xtensa/xtensa_api.h>
 #include "exception_names.h"
-
-void camera_init(void);
-void startCameraServer(void);
 
 typedef intptr_t cell_t;
 
@@ -134,7 +132,11 @@ void register_exception_handlers(void)
   X("NON-BLOCK", NON_BLOCK, tos = fcntl(tos, F_SETFL, O_NONBLOCK); tos = tos < 0 ? errno : 0) \
   X("CLOSE-FILE", CLOSE_FILE, tos = close(tos)) \
   X("MS-TICKS", MS_TICKS, DUP; tos = millis()) \
-  X("STARTCAMERASERVER", STARTCAMERASERVER, startCameraServer()) \
+  X("ESP_CAMERA_INIT", ESP_CAMERA_INIT, tos = esp_camera_init((camera_config_t *)tos)) \
+  X("ESP_CAMERA_DEINIT", ESP_CAMERA_DEINIT, DUP; tos = esp_camera_deinit()) \
+  X("ESP_CAMERA_FB_GET", ESP_CAMERA_FB_GET, DUP; tos = (cell_t)esp_camera_fb_get()) \
+  X("ESP_CAMERA_FB_RETURN", ESP_CAMERA_FB_RETURN, esp_camera_fb_return((camera_fb_t *)tos); DROP) \
+  X("ERASE", ERASE, memset((void *)*sp, 0, tos); sp--; DROP) \
   X("DD", DD, for(cell_t *start = (cell_t *)here + STACK_SIZE + STACK_SIZE; start < g_sys.here; start++) { printf("%08x: %08x\n", start, *start); } ) \
 
 struct {
@@ -514,7 +516,7 @@ variable hld
 \ - words containing ." and s"
 \ - loops/0branch
 : builtin? ( xt -- ) @ 'DOCOL <> ;
-: see. ( xt -- ) dup >name nip if >name type space else ." <noname at " u.8$ ." >" then ;
+: see. ( xt -- ) dup >name nip if >name type space else ." noname@" u.8$ space then ;
 : see-one ( xt -- xt+1 )  dup @ dup ['] DOLIT = if drop cell+ dup @ . else see. then cell+ ;
 : exit= ( xt -- ) ['] exit = ;
 : see-loop   >:body begin dup @ exit= invert while see-one repeat ;
@@ -542,35 +544,6 @@ create input-buffer   input-limit allot
 : refill ( -- n ) input-buffer 'tib !
    'tib @ input-limit accept #tib ! 0 >in ! ;
 
-\ Tasks
-variable task-list
-: .tasks   task-list @ begin dup 5 cells - see. @ dup task-list @ = until drop ;
-: pause
-  rp@ sp@ task-list @ cell+ !
-  task-list @ @ task-list !
-  task-list @ cell+ @ sp! rp! ;
-: task ( xt dsz rsz "name" )
-   create here >r 0 , 0 , ( link, sp )
-   swap here cell+ r@ cell+ ! cells allot
-   here r@ cell+ @ ! cells allot
-   dup 0= if drop else
-     here r@ cell+ @ @ ! ( set rp to point here )
-     , postpone pause ['] branch , here 3 cells - ,
-   then rdrop ;
-: start-task ( t -- )
-   task-list @ if
-     task-list @ @ over !
-     task-list @ !
-   else
-     dup task-list !
-     dup !
-   then ;
-
-0 0 0 task main-task  main-task start-task
-
-: ms ( n -- ) ms-ticks >r begin pause ms-ticks r@ - over >= until rdrop drop ;
-: printtask 0 begin pause ( ." loop " dup . ) 1 + 1000 ms again ;
-' printtask 10 10 task print-task print-task start-task
 
 \ REPL
 : prompt   state @ if ."  compiled" else ."  ok" then cr ;
@@ -651,13 +624,13 @@ variable telnet-c -1 telnet-c !
 
 : poll-for-connection ( -- ) client-connected ?exit sockfd clientsock client-len sockaccept to clientfd clientfd non-block drop ;
 
-:noname ( -- n ) \ telnet-aware key
-    begin
-        poll-for-connection
-        SKEY? if SKEY exit then
-        telnet-key? if telnet-key exit then
-    again ; is key
-:noname ( n n -- ) 2dup STYPE try-telnet-type ; is type
+\ :noname ( -- n ) \ telnet-aware key
+\     begin
+\         poll-for-connection
+\         SKEY? if SKEY exit then
+\         telnet-key? if telnet-key exit then
+\     again ; is key
+\ :noname ( n n -- ) 2dup STYPE try-telnet-type ; is type
 
 : server ( n -- )
   serversock ->port!
@@ -676,6 +649,76 @@ ip?
 
 1337 server
 
+
+4 constant PIXFORMAT_JPEG
+8 constant FRAMESIZE_VGA      ( 640x480 )
+
+( Settings for AI_THINKER )
+\ settings for double-layer module, NOT WROVER-DEV
+create camera-config
+  32 , ( pin_pwdn ) -1 , ( pin_reset ) 0 , ( pin_xclk )
+  26 , ( pin_sscb_sda ) 27 , ( pin_sscb_scl )
+  35 , 34 , 39 , 36 , 21 , 19 , 18 , 5 , ( pin_d7 - pin_d0 )
+  25 , ( pin_vsync ) 23 , ( pin_href ) 22 , ( pin_pclk )
+  20000000 , ( xclk_freq_hz )
+  0 , ( ledc_timer ) 0 , ( ledc_channel )
+  here
+  PIXFORMAT_JPEG , ( pixel_format )
+  here
+  FRAMESIZE_VGA , ( frame_size )
+  here
+  12 , ( jpeg_quality 0-63 low good )
+  here
+  1 , ( fb_count )
+
+
+: send ( buf len -- ) clientfd -rot write-file drop ;
+: client-emit ( c -- )  >r clientfd rp@ 1 write-file drop rdrop ;
+: client-cr 13 client-emit 10 client-emit ;
+
+512 constant bufsize
+create httpbuf bufsize allot
+
+: handle-image
+  20 ms
+  clientfd httpbuf bufsize read-file drop
+  s" HTTP/1.1 200 OK" send client-cr
+  s" Content-Type: image/jpeg" send client-cr
+  s" Connection: close" send client-cr
+  s" Access-Control-Allow-Origin: *" send client-cr
+  client-cr
+
+  esp_camera_fb_get dup dup @ swap cell+ @ send
+  esp_camera_fb_return
+;
+
+: handleClient
+  clientfd close-file drop
+  -1 to clientfd
+  sockfd clientsock client-len sockaccept
+  dup 0< if drop 0 exit then
+  to clientfd
+  -1
+;
+
+: handle1
+  handleClient if
+  ." handleclient returned true" cr
+    handle-image
+  then
+;
+
+: pause ;
+: do-serve    begin ['] handle1 catch drop pause skey? until ;
+
+: camconfig ( -- ) camera-config esp_camera_init throw ;
+
+
+
+
+
+
+
 200 ms
 
 \ Better Errors
@@ -685,6 +728,38 @@ ip?
 quit
 )";
 
+/*
+
+\ Tasks
+variable task-list
+: .tasks   task-list @ begin dup 5 cells - see. @ dup task-list @ = until drop ;
+: pause
+  rp@ sp@ task-list @ cell+ !
+  task-list @ @ task-list !
+  task-list @ cell+ @ sp! rp! ;
+: task ( xt dsz rsz "name" )
+   create here >r 0 , 0 , ( link, sp )
+   swap here cell+ r@ cell+ ! cells allot
+   here r@ cell+ @ ! cells allot
+   dup 0= if drop else
+     here r@ cell+ @ @ ! ( set rp to point here )
+     , postpone pause ['] branch , here 3 cells - ,
+   then rdrop ;
+: start-task ( t -- )
+   task-list @ if
+     task-list @ @ over !
+     task-list @ !
+   else
+     dup task-list !
+     dup !
+   then ;
+
+0 0 0 task main-task  main-task start-task
+
+: ms ( n -- ) ms-ticks >r begin pause ms-ticks r@ - over >= until rdrop drop ;
+: printtask 0 begin pause ( ." loop " dup . ) 1 + 1000 ms again ;
+' printtask 10 10 task print-task print-task start-task
+*/
 
 void setup()
 {
@@ -692,7 +767,6 @@ void setup()
   Serial.begin(115200);
   esp_netif_init();
 //  WiFi.setSleep(false);
-  camera_init();
   ueforth(heap, boot, sizeof(boot));
 }
 
