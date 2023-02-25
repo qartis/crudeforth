@@ -1,11 +1,13 @@
 PORT=/dev/ttyUSB0
-BOARD=esp32:esp32:esp32
+#BOARD=esp32:esp32:esp32
+#BOARD=esp32:esp32:esp32wroverkit
+BOARD=esp32:esp32:esp32cam
 SHELL=/bin/bash -o pipefail
 
 all: build/crudeforth.ino.bin
 
 build/crudeforth.ino.bin: crudeforth.ino
-	arduino-cli compile -b $(BOARD) --build-path ./build/ -e -v | ./tools/truncatelines
+	arduino-cli compile -b $(BOARD) --board-options PartitionScheme=huge_app --build-path ./build/ -e -v | ./tools/truncatelines
 	@rm -f debug.cfg debug_custom.json esp32.svd
 
 .PHONY: load
