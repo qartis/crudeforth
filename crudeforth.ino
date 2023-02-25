@@ -602,122 +602,114 @@ enb PINMODE_OUTPUT pinmode
 : sockaddr   create sizeof(sockaddr_in) c, AF_INET c, 0 bs, 0 l, 0 l, 0 l, ;
 : ->port! ( n a --  ) 2 + >r dup 8 rshift r@ c! r> 1+ c! ;
 
-\ Merge serial and telnet (super sloppy)
--1 value sockfd
--1 value clientfd
 sockaddr serversock
-sockaddr clientsock
+: server-init ( port -- fd )
+    serversock ->port!
+    AF_INET SOCK_STREAM 0 socket
+    dup serversock sizeof(sockaddr_in) bind throw
+    dup 1 listen throw
+    dup non-block throw ;
+
+
+\ Telnet
+-1 value telnet-sockfd
+-1 value telnet-clientfd
+sockaddr telnet-clientsock
 variable client-len
 variable telnet-c -1 telnet-c !
 
-: client-connected ( -- n ) clientfd -1 <> ;
-: client-reset ( -- ) clientfd close-file drop -1 to clientfd ;
+: telnet-client-connected ( -- n ) telnet-clientfd -1 <> ;
+: telnet-client-reset ( -- ) telnet-clientfd close-file drop -1 to telnet-clientfd ;
 : telnet-c-valid ( -- flag ) telnet-c @ -1 <> ;
 : telnet-c-reset ( -- ) -1 telnet-c ! ;
 : telnet-key ( -- n ) telnet-c uc@ telnet-c-reset ;
-: handle-telnet-read ( n -- ) 0= if client-reset then ;
-: telnet-tryreadc ( -- ) client-connected invert ?exit clientfd telnet-c 1 read-file handle-telnet-read ;
+: telnet-handle-read ( n -- ) 0= if telnet-client-reset then ;
+: telnet-tryreadc ( -- ) telnet-client-connected invert ?exit telnet-clientfd telnet-c 1 read-file telnet-handle-read ;
 : telnet-key? ( -- flag ) telnet-c-valid if -1 exit then telnet-c-reset telnet-tryreadc telnet-c-valid ;
-: try-telnet-type ( addr u -- ) clientfd -rot write-file drop ;
+: telnet-try-type ( addr u -- ) telnet-clientfd -rot write-file drop ;
 
-: poll-for-connection ( -- ) client-connected ?exit sockfd clientsock client-len sockaccept to clientfd clientfd non-block drop ;
-
-\ :noname ( -- n ) \ telnet-aware key
-\     begin
-\         poll-for-connection
-\         SKEY? if SKEY exit then
-\         telnet-key? if telnet-key exit then
-\     again ; is key
-\ :noname ( n n -- ) 2dup STYPE try-telnet-type ; is type
-
-: server ( n -- )
-  serversock ->port!
-  AF_INET SOCK_STREAM 0 socket to sockfd
-  sockfd serversock sizeof(sockaddr_in) bind throw
-  sockfd 1 listen throw
-  sockfd non-block throw ;
-
-: wifi ." wifi init" cr z" 1A90FF" z" thepassword" wifi.begin drop ;
+: telnet-poll ( -- )
+    telnet-client-connected ?exit
+    telnet-sockfd telnet-clientsock client-len sockaccept
+        to telnet-clientfd
+    telnet-clientfd non-block drop ;
 
 
-\ motors-init
-wifi
-500 ms
-ip?
-
-1337 server
-
+\ Camera
+-1 value camera-sockfd
+-1 value camera-clientfd
+sockaddr camera-clientsock
 
 4 constant PIXFORMAT_JPEG
 8 constant FRAMESIZE_VGA      ( 640x480 )
 
-( Settings for AI_THINKER )
 \ settings for double-layer module, NOT WROVER-DEV
 create camera-config
-  32 , ( pin_pwdn ) -1 , ( pin_reset ) 0 , ( pin_xclk )
-  26 , ( pin_sscb_sda ) 27 , ( pin_sscb_scl )
-  35 , 34 , 39 , 36 , 21 , 19 , 18 , 5 , ( pin_d7 - pin_d0 )
-  25 , ( pin_vsync ) 23 , ( pin_href ) 22 , ( pin_pclk )
-  20000000 , ( xclk_freq_hz )
-  0 , ( ledc_timer ) 0 , ( ledc_channel )
-  here
-  PIXFORMAT_JPEG , ( pixel_format )
-  here
-  FRAMESIZE_VGA , ( frame_size )
-  here
-  12 , ( jpeg_quality 0-63 low good )
-  here
-  1 , ( fb_count )
+    32 , ( pin_pwdn ) -1 , ( pin_reset ) 0 , ( pin_xclk )
+    26 , ( pin_sscb_sda ) 27 , ( pin_sscb_scl )
+    35 , 34 , 39 , 36 , 21 , 19 , 18 , 5 , ( pin_d7 - pin_d0 )
+    25 , ( pin_vsync ) 23 , ( pin_href ) 22 , ( pin_pclk )
+    20000000 , ( xclk_freq_hz )
+    0 , ( ledc_timer ) 0 , ( ledc_channel )
+    PIXFORMAT_JPEG , ( pixel_format )
+    FRAMESIZE_VGA , ( frame_size )
+    12 , ( jpeg_quality 0-63 low good )
+    1 , ( fb_count )
 
+: camera-init ( -- ) camera-config esp_camera_init throw ;
 
-: send ( buf len -- ) clientfd -rot write-file drop ;
-: client-emit ( c -- )  >r clientfd rp@ 1 write-file drop rdrop ;
+: send ( buf len -- ) camera-clientfd -rot write-file drop ;
+: client-emit ( c -- )  >r camera-clientfd rp@ 1 write-file drop rdrop ;
 : client-cr 13 client-emit 10 client-emit ;
 
 512 constant bufsize
 create httpbuf bufsize allot
 
-: handle-image
-  20 ms
-  clientfd httpbuf bufsize read-file drop
-  s" HTTP/1.1 200 OK" send client-cr
-  s" Content-Type: image/jpeg" send client-cr
-  s" Connection: close" send client-cr
-  s" Access-Control-Allow-Origin: *" send client-cr
-  client-cr
+: camera-send-image
+    \ pretend to read the request..
+    20 ms
+    camera-clientfd httpbuf bufsize read-file drop
 
-  esp_camera_fb_get dup dup @ swap cell+ @ send
-  esp_camera_fb_return
-;
+    s" HTTP/1.1 200 OK" send client-cr
+    s" Content-Type: image/jpeg" send client-cr
+    s" Connection: close" send client-cr
+    s" Access-Control-Allow-Origin: *" send client-cr
+    client-cr
 
-: handleClient
-  clientfd close-file drop
-  -1 to clientfd
-  sockfd clientsock client-len sockaccept
-  dup 0< if drop 0 exit then
-  to clientfd
-  -1
-;
+    esp_camera_fb_get dup dup @ swap cell+ @ send
+    esp_camera_fb_return ;
 
-: handle1
-  handleClient if
-  ." handleclient returned true" cr
-    handle-image
-  then
-;
-
-: pause ;
-: do-serve    begin ['] handle1 catch drop pause skey? until ;
-
-: camconfig ( -- ) camera-config esp_camera_init throw ;
+: camera-poll
+    camera-clientfd close-file drop
+    -1 to camera-clientfd
+    camera-sockfd camera-clientsock client-len sockaccept
+    dup 0< if drop exit then
+    to camera-clientfd
+    camera-send-image ;
 
 
+:noname ( -- n ) \ telnet-aware key, also our main event loop
+    begin
+	camera-poll
+        telnet-poll
+        SKEY? if SKEY exit then
+        telnet-key? if telnet-key exit then
+    again ; is key
+:noname ( n n -- ) 2dup STYPE telnet-try-type ; is type
 
 
+: wifi-init ." wifi init" cr z" 1A90FF" z" thepassword" wifi.begin drop ;
 
 
+wifi-init
+motors-init
+camera-init
+23 server-init to telnet-sockfd
+1337 server-init to camera-sockfd
 
-200 ms
+500 ms
+ip?
+
 
 \ Better Errors
 : notfound ( a n n -- )  if cr ." ERROR: " type ."  NOT FOUND!" cr -1 throw then ;
