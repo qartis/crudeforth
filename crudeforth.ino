@@ -130,7 +130,6 @@ void register_exception_handlers(void)
   X("ESP_CAMERA_DEINIT", ESP_CAMERA_DEINIT, DUP; tos = esp_camera_deinit()) \
   X("ESP_CAMERA_FB_GET", ESP_CAMERA_FB_GET, DUP; tos = (cell_t)esp_camera_fb_get()) \
   X("ESP_CAMERA_FB_RETURN", ESP_CAMERA_FB_RETURN, esp_camera_fb_return((camera_fb_t *)tos); DROP) \
-  X("ERASE", ERASE, memset((void *)*sp, 0, tos); sp--; DROP) \
   X("DD", DD, for(cell_t *start = (cell_t *)here + STACK_SIZE + STACK_SIZE; start < g_sys.here; start++) { printf("%08x: %08x\n", start, *start); } ) \
 
 struct {
@@ -346,14 +345,12 @@ header ; ' DOLIT , ' EXIT , ' , , ' DOLIT , 0 , ' DOLIT , 'SYS 3 4 * + , ' ! , '
 : u/mod ( n n -- n ) 2dup umod -rot u/ ;
 : invert ( n -- ~n ) -1 xor ;
 : negate ( n -- -n ) invert 1 + ;
-: - ( n n -- n ) negate + ;
 : 0= ( n -- n ) 0 = ;
 : 0< ( n -- n ) 0 < ;
 : > ( a b -- a>b ) swap < ;
 : >= ( n n -- n ) < invert ;
 : <> ( a b -- a!=b ) = invert ;
 : 1+ ( n -- n ) 1 + ;
-: 1- ( n -- n ) 1 - ;
 : +! ( n a -- ) swap over @ + swap ! ;
 
 \ System Variables
@@ -371,7 +368,7 @@ header ; ' DOLIT , ' EXIT , ' , , ' DOLIT , 0 , ' DOLIT , 'SYS 3 4 * + , ' ! , '
 : here ( -- a ) 'here @ ;
 : latest ( -- a ) 'latest @ ;
 : allot ( n -- ) 'here +! ;
-: aligned ( a -- a ) cell+ 1- cell negate and ;
+: aligned ( a -- a ) cell+ 1 - cell negate and ;
 : align  ( -- ) here aligned 'here ! ;
 : c, ( ch -- ) here c! 1 allot ;
 
@@ -470,7 +467,6 @@ handler 'throw-handler !
 : is ( xt "name" -- ) postpone to ; immediate
 
 defer key  ' SKEY is key
-
 defer type  ' STYPE is type
 
 : emit ( n -- ) >r rp@ 1 type rdrop ;
@@ -493,7 +489,7 @@ variable hld
 : decimal ( -- ) 10 base ! ;
 : u. ( u -- ) <# #s #> type space ;
 : #n ( u n -- u )  0 ?do # loop ;
-: u.0 ( u n -- )  <# 1- #n #s #> type ;
+: u.0 ( u n -- )  <# 1 - #n #s #> type ;
 : .. ( n -- ) str type ;
 : . ( w -- ) base @ 10 xor if u. else .. space then ;
 : u.8$  ( u -- ) base @ >r   hex 8 u.0    r> base ! ;
@@ -537,38 +533,42 @@ variable hld
 200 constant input-limit
 create input-buffer   input-limit allot
 : accept ( a n -- n ) 0 swap begin 2dup < while
-   key dup nl = if 2drop nip exit then
-   >r rot r> over c! 1+ -rot swap 1+ swap repeat drop nip ;
+    key dup nl = if 2drop nip exit then
+    >r rot r> over c! 1+ -rot swap 1+ swap repeat drop nip ;
 : refill ( -- n ) input-buffer 'tib !
-   'tib @ input-limit accept #tib ! 0 >in ! ;
+    'tib @ input-limit accept #tib ! 0 >in ! ;
 
 
 \ REPL
 : prompt   state @ if ."  compiled" else ."  ok" then cr ;
 : underflow?   sp@ sp0 < if ." STACK UNDERFLOW " -4 throw then ;
 : interpret   begin >in @ #tib @ < while EVALUATE1 underflow? repeat ;
-: recurse latest , ; immediate
-: quit ( -- ) sp0 sp! rp0 rp! postpone [
-              begin
-                 prompt refill
-                 ['] interpret catch
-                 if ." ERROR" cr recurse then
-              again ;
+: recurse  latest , ; immediate
+: quit ( -- )
+    sp0 sp! rp0 rp! postpone [
+    begin
+      prompt refill
+      ['] interpret catch
+      if ." ERROR" cr recurse then
+    again ;
+
+\ Misc
 : .s ." < " depth . ." > " depth 0 ?do sp0 i 1 + cells + @ . loop cr ;
 : forget  ' dup >name drop 'here ! >link 'latest ! ;
+: ?exit ( flag -- ) if rdrop exit then ;
 
 \ Motors
 2  constant ena 0 constant in1  4 constant in2
 19 constant enb 5 constant in3 18 constant in4
 
-0 constant pwmchan
-30 constant pwmfreq
+0 constant PWMCHAN
+30 constant PWMFREQ
 2 constant PINMODE_OUTPUT
+12 constant 12BIT
 2000 value rampduty
 600 value driveduty
 80 value ramptime
 500 value steptime
-
 
 in1 PINMODE_OUTPUT pinmode in2 PINMODE_OUTPUT pinmode
 in3 PINMODE_OUTPUT pinmode in4 PINMODE_OUTPUT pinmode
@@ -588,7 +588,7 @@ enb PINMODE_OUTPUT pinmode
 : forw  ( -- ) in1 hi in2 lo ;
 : back  ( -- ) in1 lo in2 hi ;
 : motors-init
-    pwmchan pwmfreq 12 ( 12bit ) ledcsetup drop
+    pwmchan pwmfreq 12bit ledcsetup drop
     ena pwmchan ledcattachpin
     forw stop ;
 
@@ -610,7 +610,6 @@ sockaddr clientsock
 variable client-len
 variable telnet-c -1 telnet-c !
 
-: ?exit ( flag -- ) if rdrop exit then ;
 : client-connected ( -- n ) clientfd -1 <> ;
 : client-reset ( -- ) clientfd close-file drop -1 to clientfd ;
 : telnet-c-valid ( -- flag ) telnet-c @ -1 <> ;
