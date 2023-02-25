@@ -329,18 +329,20 @@ header ; ' DOLIT , ' EXIT , ' , , ' DOLIT , 0 , ' DOLIT , 'SYS 3 4 * + , ' ! , '
 : drop  sp@ cell- sp! ;
 : (  41 parse drop drop ; immediate
 : \  10 parse drop drop ; immediate
-: dup  sp@ @ ;
-: >r  rp@ rp@ @ rp@ cell+ dup rp! ! ! ;
+: dup ( a -- a a ) sp@ @ ;
+: >r ( a -- ) ( R: -- a ) rp@ rp@ @ rp@ cell+ dup rp! ! ! ;
 : r> ( -- a ) ( R: a -- ) rp@ cell- @ rp@ @ rp@  cell- dup rp! ! ;
-: r@  rp@ cell- @ ;
-: swap  sp@ cell- dup @ >r ! r> ;
-: over  >r dup r> swap ;
+: r@ ( -- a ) rp@ cell- @ ;
+: swap ( a b -- b a ) sp@ cell- dup @ >r ! r> ;
+: over ( a b -- a b a ) >r dup r> swap ;
 : 2drop ( n n -- ) drop drop ;
 : 2dup ( a b -- a b a b ) over over ;
 : nip ( a b -- b ) swap drop ;
-: rdrop ( r: n n -- ) r> r> drop >r ;
+: rdrop ( R: n -- ) r> r> drop >r ;
 : rot ( a b c -- c a b ) >r swap r> swap ;
 : -rot ( a b c -- b c a ) swap >r swap r> ;
+: pick  ( n -- n ) 1 + cells sp@ swap - @ ;
+: rpick ( R: n -- n ) 1 + cells rp@ swap - @ ;
 : u/mod ( n n -- n ) 2dup umod -rot u/ ;
 : invert ( n -- ~n ) -1 xor ;
 : negate ( n -- -n ) invert 1 + ;
@@ -367,10 +369,10 @@ header ; ' DOLIT , ' EXIT , ' , , ' DOLIT , 0 , ' DOLIT , 'SYS 3 4 * + , ' ! , '
 
 \ Dictionary
 : here ( -- a ) 'here @ ;
-: latest  'latest @ ;
+: latest ( -- a ) 'latest @ ;
 : allot ( n -- ) 'here +! ;
 : aligned ( a -- a ) cell+ 1- cell negate and ;
-: align   here aligned 'here ! ;
+: align  ( -- ) here aligned 'here ! ;
 : c, ( ch -- ) here c! 1 allot ;
 
 \ Compilation State
@@ -442,7 +444,6 @@ variable leaving
 : +loop    ( n -- ) postpone (+loop) , )leaving ; immediate
 : (loop)  r> r> 1+ dup r@ < -rot >r >r 0= if r> cell+ rdrop rdrop >r else r> @ >r then ;
 : loop   postpone (loop) , )leaving ; immediate
-: rpick 1+ cells rp@ swap - @ ;
 : i 1 rpick ;
 : j 3 rpick ;
 : k 5 rpick ;
@@ -525,7 +526,6 @@ variable hld
 
 \ Examine Memory
 : ?dup  ( n -- 0 | n n ) dup if dup then ;
-: pick  ( n -- n ) 1+ cells sp@ swap - @ ;
 : printprim  ( a -- ) ['] dd begin dup @ 2 pick = if ." &&DO_" >name type drop exit then >link ?dup 0= until u.8$ ;
 : printword  ( xt -- )  latest begin 2dup = if ." --> " see. drop exit then >link ?dup 0= until printprim ;
 : dumpaddr  ( addr -- ) dup u.8$ space @ printword cr ;
