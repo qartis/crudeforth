@@ -549,11 +549,12 @@ create input-buffer   input-limit allot
 : prompt   state @ if ."  compiled" else ."  ok" then cr ;
 : underflow?   sp@ sp0 < if ." STACK UNDERFLOW " -4 throw then ;
 : interpret   begin >in @ #tib @ < while EVALUATE1 underflow? repeat ;
+: recurse latest , ; immediate
 : quit ( -- ) sp0 sp! rp0 rp! postpone [
               begin
                  prompt refill
                  ['] interpret catch
-                 if ." ERROR" cr sp0 sp! rp0 rp! then
+                 if ." ERROR" cr recurse then
               again ;
 : .s ." < " depth . ." > " depth 0 ?do sp0 i 1 + cells + @ . loop cr ;
 : forget  ' dup >name drop 'here ! >link 'latest ! ;
