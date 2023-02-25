@@ -271,13 +271,12 @@ cell_t *evaluate1(cell_t *sp)
   return sp;
 }
 
-void ueforth(void *here, const char *src, cell_t src_len) __attribute__((noreturn));
 void ueforth(void *here, const char *src, cell_t src_len)
 {
   g_sys.here = (cell_t *)here;
-  register cell_t *sp = g_sys.here; g_sys.here += STACK_SIZE;
-  register cell_t *rp = g_sys.here; g_sys.here += STACK_SIZE;
-  register cell_t tos = 0, *ip, w;
+  cell_t *sp = g_sys.here; g_sys.here += STACK_SIZE;
+  cell_t *rp = g_sys.here; g_sys.here += STACK_SIZE;
+  cell_t tos = 0, *ip, w;
 
 #define X(name, op, code) create(name, sizeof(name) - 1, && OP_ ## op);
   OPCODE_LIST
