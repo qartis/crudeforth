@@ -61,7 +61,8 @@ void register_exception_handlers(void)
   X("'DOCOL", TICKDOCOL, DUP; tos = (cell_t)&&OP_DOCOLON) \
   X("=",   EQUAL, tos = (*sp == tos) ? -1 : 0; --sp) \
   X("<",   LESS, tos = (*sp < tos) ? -1 : 0; --sp) \
-  X("+",   PLUS, tos = *sp + tos; --sp) \
+  X("+",   ADD,  tos = *sp + tos; --sp) \
+  X("-",   SUB,  tos = *sp - tos; --sp) \
   X("/",   DIV,  tos = *sp / tos; --sp) \
   X("U/",  UDIV, tos = (unsigned)*sp / tos; --sp) \
   X("MOD", MOD,  tos = *sp % tos; --sp) \
@@ -72,10 +73,7 @@ void register_exception_handlers(void)
   X("XOR", XOR,  tos = *sp ^ tos; --sp) \
   X("LSHIFT",  LSHIFT,  tos = *sp << tos; --sp) \
   X("RSHIFT",  RSHIFT,  tos = (unsigned)*sp >> tos; --sp) \
-  X("DUP", DUP,  DUP) \
-  X("SWAP", SWAP, w = tos; tos = *sp; *sp = w) \
   X("OVER", OVER, DUP; tos = sp[-1]) \
-  X("DROP", DROP, DROP) \
   X("@",   FETCH,   tos = *(cell_t *)tos) \
   X("U@",  UFETCH,  tos = *(uint32_t *)tos) \
   X("W@",  WFETCH,  tos = *(int16_t *)tos) \
@@ -89,16 +87,12 @@ void register_exception_handlers(void)
   X("SP!", SPSTORE, sp = (cell_t *) tos; DROP) \
   X("RP@", RPFETCH, DUP; tos = (cell_t) rp) \
   X("RP!", RPSTORE, rp = (cell_t *) tos; DROP) \
-  X(">R", TOR, ++rp; *rp = tos; DROP) \
   X(",", COMMA_TOKEN, COMMA(tos); DROP) \
   X("'", TICK, DUP; DUP; tos = parse(' ', (cell_t *)sp); tos = find((const char *)*sp, tos); *sp = tos; DROP) \
-  X("R>", FROMR, DUP; tos = *rp; --rp) \
-  X("R@", RFETCH, DUP; tos = *rp) \
   X("EXECUTE", EXECUTE, w = tos; DROP; goto **(void **)w) \
   X("BRANCH", BRANCH, ip = (cell_t *)*ip) \
   X("0BRANCH", ZBRANCH, if (!tos) ip = (cell_t *)*ip; else ++ip; DROP) \
   X("DOLIT", DOLIT, DUP; tos = *ip; ++ip) \
-  X("CELL", CELL, DUP; tos = sizeof(cell_t)) \
   X("FIND", FIND, tos = find((const char *)*sp, tos); --sp) \
   X("PARSE", PARSE, DUP; tos = parse(tos, (cell_t *)sp)) \
   X("(CREATE)", PAREN_CREATE, create((const char *)sp[-1], sp[0], (void *)tos); DROP; DROP; DROP) \
@@ -290,7 +284,6 @@ void ueforth(void *here, const char *src, cell_t src_len)
 #undef X
 
   g_sys.DOLIT_XT = FIND("DOLIT");
-  g_sys.NOTFOUND_XT = FIND("DROP");
   g_sys.base = 10;
   g_sys.state = 0;
   g_sys.tin = 0;
@@ -326,11 +319,23 @@ void ueforth(void *here, const char *src, cell_t src_len)
 
 const char boot[] = R"(
 32 PARSE header 'DOCOL (CREATE) ' DOLIT , 32 , ' PARSE , ' DOLIT , 'DOCOL , ' (CREATE) , ' EXIT ,
-header : ' header , ' DOLIT , -1 , ' DOLIT , 'SYS 3 CELL * + , ' ! , ' EXIT ,
-header ; ' DOLIT , ' EXIT , ' , , ' DOLIT , 0 , ' DOLIT , 'SYS 3 CELL * + , ' ! , ' EXIT , IMMEDIATE
+header : ' header , ' DOLIT , -1 , ' DOLIT , 'SYS 3 4 * + , ' ! , ' EXIT ,
+header ; ' DOLIT , ' EXIT , ' , , ' DOLIT , 0 , ' DOLIT , 'SYS 3 4 * + , ' ! , ' EXIT , IMMEDIATE
 
+: cell  4 ;
+: cell+  cell + ;
+: cell-  cell - ;
+: cells  cell * ;
+: cell/  cell / ;
+: drop  sp@ cell- sp! ;
 : (  41 parse drop drop ; immediate
 : \  10 parse drop drop ; immediate
+: dup  sp@ @ ;
+: >r  rp@ rp@ @ rp@ cell+ dup rp! ! ! ;
+: r> ( -- a ) ( R: a -- ) rp@ cell- @ rp@ @ rp@  cell- dup rp! ! ;
+: r@  rp@ cell- @ ;
+: swap  sp@ cell- dup @ >r ! r> ;
+: over  >r dup r> swap ;
 : 2drop ( n n -- ) drop drop ;
 : 2dup ( a b -- a b a b ) over over ;
 : nip ( a b -- b ) swap drop ;
@@ -349,11 +354,6 @@ header ; ' DOLIT , ' EXIT , ' , , ' DOLIT , 0 , ' DOLIT , 'SYS 3 CELL * + , ' ! 
 : 1+ ( n -- n ) 1 + ;
 : 1- ( n -- n ) 1 - ;
 : +! ( n a -- ) swap over @ + swap ! ;
-
-\ Cells
-: cell+ ( n -- n ) cell + ;
-: cells ( n -- n ) cell * ;
-: cell/ ( n -- n ) cell / ;
 
 \ System Variables
 : 'tib ( -- a ) 'sys 0 cells + ;
@@ -381,7 +381,6 @@ header ; ' DOLIT , ' EXIT , ' , , ' DOLIT , 0 , ' DOLIT , 'SYS 3 CELL * + , ' ! 
 \ Quoting Words
 : bl  ( -- n ) 32 ;
 : nl  ( -- n ) 10 ;
-: ' bl parse 2dup find dup >r -rot r> 0= 'notfound @ EXECUTE 2drop ;
 : aliteral [ ' dolit , ' dolit , ' , , ] , ;
 : ['] ' aliteral ; immediate
 : char bl parse drop c@ ;
@@ -725,6 +724,7 @@ create httpbuf bufsize allot
 \ Better Errors
 : notfound ( a n n -- )  if cr ." ERROR: " type ."  NOT FOUND!" cr -1 throw then ;
 ' notfound 'notfound !
+: ' bl parse 2dup find dup >r -rot r> 0= 'notfound @ EXECUTE 2drop ;
 
 quit
 )";
