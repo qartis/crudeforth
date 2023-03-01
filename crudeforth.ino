@@ -490,10 +490,10 @@ variable hld
 : u. ( u -- ) <# #s #> type space ;
 : #n ( u n -- u )  0 ?do # loop ;
 : u.0 ( u n -- )  <# 1 - #n #s #> type ;
-: .. ( n -- ) str type ;
-: . ( w -- ) base @ 10 xor if u. else .. space then ;
+: (.) ( n -- ) str type ;
+: . ( w -- ) base @ 10 xor if u. else (.) space then ;
 : u.8$  ( u -- ) base @ >r   hex 8 u.0    r> base ! ;
-: ip# ( n -- n ) dup 255 and .. [char] . emit 8 rshift ;
+: ip# ( n -- n ) dup 255 and (.) [char] . emit 8 rshift ;
 : ip. ( n -- ) ip# ip# ip# 255 and . ;
 : ip? ( -- ) wifi.localip ip. ;
 
