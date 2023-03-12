@@ -673,21 +673,24 @@ sockaddr camera-clientsock
 
 4 constant PIXFORMAT_JPEG
 8 constant FRAMESIZE_VGA      ( 640x480 )
+0 constant CAMERA_FB_IN_PSRAM
+1 constant CAMERA_FB_IN_DRAM
 
 \ settings for double-layer module, NOT WROVER-DEV
 create camera-config
-    32 , ( pin_pwdn ) -1 , ( pin_reset ) 0 , ( pin_xclk )
-    26 , ( pin_sscb_sda ) 27 , ( pin_sscb_scl )
-    35 , 34 , 39 , 36 , 21 , 19 , 18 , 5 , ( pin_d7 - pin_d0 )
-    25 , ( pin_vsync ) 23 , ( pin_href ) 22 , ( pin_pclk )
-    20000000 , ( xclk_freq_hz )
-    0 , ( ledc_timer ) 0 , ( ledc_channel )
-    PIXFORMAT_JPEG , ( pixel_format )
-    FRAMESIZE_VGA , ( frame_size )
-    12 , ( jpeg_quality 0-63 low good )
-    1 , ( fb_count )
+  -1 , ( pin_pwdn ) -1 , ( pin_reset ) 21 , ( pin_xclk )
+  26 , ( pin_sscb_sda ) 27 , ( pin_sscb_scl )
+  35 , 34 , 39 , 36 , 19 , 18 , 5 , 4 , ( pin_d7 - pin_d0 )
+  25 , ( pin_vsync ) 23 , ( pin_href ) 22 , ( pin_pclk )
+  20000000 , ( xclk_freq_hz )
+  0 , ( ledc_timer ) 0 , ( ledc_channel )
+  PIXFORMAT_JPEG , ( pixel_format )
+  FRAMESIZE_VGA , ( frame_size )
+  12 , ( jpeg_quality 0-63 low good )
+  1 , ( fb_count )
+  CAMERA_FB_IN_DRAM ,
 
-: camera-init ( -- ) camera-config esp_camera_init throw ;
+: camera-init ( -- ) camera-config esp_camera_init drop ;
 
 : send ( buf len -- ) camera-clientfd -rot write-file drop ;
 : client-emit ( c -- )  >r camera-clientfd rp@ 1 write-file drop rdrop ;
