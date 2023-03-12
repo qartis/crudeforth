@@ -402,6 +402,7 @@ header ; ' DOLIT , ' EXIT , ' , , ' DOLIT , 0 , ' DOLIT , 'SYS 3 4 * + , ' ! , '
 : min 2dup < if drop else nip then ;
 : max 2dup < if nip else drop then ;
 : abs ( n -- +n ) dup 0< if negate then ;
+: ?dup  ( n -- 0 | n n ) dup if dup then ;
 
 \ Dictionary Format
 : >name ( xt -- a n ) 3 cells - dup @ swap over aligned - swap ;
@@ -507,7 +508,7 @@ variable hld
 : ."   postpone s" state @ if postpone type else type then ; immediate
 : z"   postpone s" state @ if postpone drop else drop then ; immediate
 
-\ Examine Dictionary
+\ See
 \ TODO: errors when decompiling:
 \ - words containing ." and s"
 \ - loops/0branch
@@ -521,8 +522,7 @@ variable hld
 : see   ' dup builtin? if dup see. ." is builtin" else see-: then cr ;
 : words   latest begin dup see. >link dup 0= until drop cr ;
 
-\ Examine Memory
-: ?dup  ( n -- 0 | n n ) dup if dup then ;
+\ Dump
 : printprim  ( a -- ) ['] dd begin dup @ 2 pick = if ." &&DO_" >name type drop exit then >link ?dup 0= until u.8$ ;
 : printword  ( xt -- )  latest begin 2dup = if ." --> " see. drop exit then >link ?dup 0= until printprim ;
 : dumpaddr  ( addr -- ) dup u.8$ space @ printword cr ;
@@ -611,7 +611,6 @@ sockaddr serversock
     dup 1 listen throw
     dup non-block throw ;
 
-
 \ Telnet
 -1 value telnet-sockfd
 -1 value telnet-clientfd
@@ -634,7 +633,6 @@ variable telnet-c -1 telnet-c !
     telnet-sockfd telnet-clientsock client-len sockaccept
         to telnet-clientfd
     telnet-clientfd non-block drop ;
-
 
 \ Camera
 -1 value camera-sockfd
