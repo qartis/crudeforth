@@ -23,3 +23,8 @@ clean:
 .PHONY: monitor
 monitor:
 	@./tools/serial-monitor.sh $(PORT)
+
+.PHONY: reboot
+reboot:
+	./tools/ioctl $(PORT) 1 0
+	./tools/ioctl $(PORT) 0 0
