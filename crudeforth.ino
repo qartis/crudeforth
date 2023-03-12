@@ -758,7 +758,8 @@ void setup()
   cell_t *heap = (cell_t *) malloc(HEAP_SIZE);
   Serial.begin(115200);
   esp_netif_init();
-//  WiFi.setSleep(false);
+  WiFi.setSleep(false);
+
   ueforth(heap, boot, sizeof(boot));
 }
 
