@@ -588,39 +588,42 @@ variable task-list
 0 0 0 task main-task  main-task start-task
 
 \ Motors
-2  constant ena 0 constant in1  4 constant in2
-19 constant enb 5 constant in3 18 constant in4
+15 constant ena 32 constant in1 33 constant in2
+13 constant enb 14 constant in3 12 constant in4
 
-0 constant PWMCHAN
-30 constant PWMFREQ
+2 constant PWMCHAN_DRIVE
+1 constant PWMCHAN_STEER
+15974 constant PWMFREQ
 2 constant PINMODE_OUTPUT
 12 constant 12BIT
-2000 value rampduty
-600 value driveduty
+2000 value rampstrength
+600 value drivestrength
 80 value ramptime
 500 value steptime
+3000 value steerstrength
 
 in1 PINMODE_OUTPUT pinmode in2 PINMODE_OUTPUT pinmode
 in3 PINMODE_OUTPUT pinmode in4 PINMODE_OUTPUT pinmode
-enb PINMODE_OUTPUT pinmode
 
 : hi ( n -- ) 1 digitalwrite ;
 : lo ( n -- ) 0 digitalwrite ;
 
-: steer  ( -- ) enb hi ;
+: steer  ( -- ) PWMCHAN_STEER steerstrength ledcwrite ;
 : left   ( -- ) in3 hi  in4 lo  steer ;
 : right  ( -- ) in3 lo  in4 hi  steer ;
-: straight  ( -- ) enb lo ;
+: straight  ( -- ) PWMCHAN_STEER 0 ledcwrite ;
 
-: stop  ( -- ) pwmchan 0 ledcwrite straight ;
-: pwmduty  ( n -- ) pwmchan swap ledcwrite ;
-: step  ( -- )  rampduty pwmduty   ramptime ms   driveduty pwmduty  steptime ms   0 pwmduty ;
+: stop  ( -- ) PWMCHAN_DRIVE 0 ledcwrite straight ;
+: setdriveduty  ( n -- ) PWMCHAN_DRIVE swap ledcwrite ;
+: step  ( -- )  rampstrength setdriveduty   ramptime ms   drivestrength setdriveduty  steptime ms   0 setdriveduty ;
 : forw  ( -- ) in1 hi in2 lo ;
 : back  ( -- ) in1 lo in2 hi ;
 : motors-init
-    pwmchan pwmfreq 12bit ledcsetup drop
-    ena pwmchan ledcattachpin
-    forw stop ;
+    PWMCHAN_DRIVE PWMFREQ 12bit ledcsetup drop
+    PWMCHAN_STEER PWMFREQ 12bit ledcsetup drop
+    ena PWMCHAN_DRIVE ledcattachpin
+    enb PWMCHAN_STEER ledcattachpin
+    stop ;
 
 \ Sockets
 1 constant SOCK_STREAM
