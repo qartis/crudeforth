@@ -117,7 +117,7 @@ void register_exception_handlers(void)
   X("WIFI.RSSI", WIFIRSSI, DUP; tos = WiFi.RSSI()) \
   X("PINMODE", PINMODE, pinMode((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
   X("DIGITALWRITE", DIGITALWRITE, digitalWrite((uint8_t)*sp, (uint8_t)tos); DROP; DROP) \
-  X("WRITE-FILE", WRITE_FILE, tos = write(sp[-1], (void *)sp[0], tos); sp -= 2; tos = (tos == -1) ? errno : 0) \
+  X("WRITE-FILE", WRITE_FILE, tos = write(sp[-1], (void *)sp[0], tos); sp -= 2) \
   X("READ-FILE", READ_FILE, tos = read(sp[-1], (void *)sp[0], tos); sp -= 2) \
   X("LISTEN", LISTEN, tos = listen(sp[0], tos); --sp) \
   X("SOCKACCEPT", SOCKACCEPT, tos = accept(sp[-1], (sockaddr *)sp[0], (socklen_t *)tos); sp -= 2) \
@@ -623,10 +623,10 @@ variable telnet-c -1 telnet-c !
 : telnet-c-valid ( -- flag ) telnet-c @ -1 <> ;
 : telnet-c-reset ( -- ) -1 telnet-c ! ;
 : telnet-key ( -- n ) telnet-c uc@ telnet-c-reset ;
-: telnet-handle-read ( n -- ) 0= if telnet-client-reset then ;
-: telnet-tryreadc ( -- ) telnet-client-connected invert ?exit telnet-clientfd telnet-c 1 read-file telnet-handle-read ;
+: telnet-handle-err ( flag -- ) if telnet-client-reset then ;
+: telnet-tryreadc ( -- ) telnet-client-connected invert ?exit telnet-clientfd telnet-c 1 read-file 0= telnet-handle-err ;
+: telnet-try-type ( addr u -- ) telnet-client-connected 0= if 2drop exit then telnet-clientfd -rot write-file 0< telnet-handle-err ;
 : telnet-key? ( -- flag ) telnet-c-valid if -1 exit then telnet-c-reset telnet-tryreadc telnet-c-valid ;
-: telnet-try-type ( addr u -- ) telnet-clientfd -rot write-file drop ;
 
 : telnet-poll ( -- )
     telnet-client-connected ?exit
