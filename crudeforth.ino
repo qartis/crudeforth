@@ -558,6 +558,35 @@ create input-buffer   input-limit allot
 : forget  ' dup >name drop 'here ! >link 'latest ! ;
 : ?exit ( flag -- ) if rdrop exit then ;
 
+\ Tasks
+variable task-list
+: .tasks ( -- )  task-list @ begin dup 5 cells - see. @ dup task-list @ = until drop ;
+: pause
+  rp@ sp@ task-list @ cell+ !
+  task-list @ @ task-list !
+  task-list @ cell+ @ sp! rp! ;
+: task ( xt dsz rsz "name" )
+   create here >r 0 , 0 , ( link, sp )
+   swap here cell+ r@ cell+ ! cells allot
+   here r@ cell+ @ ! cells allot
+   dup 0= if drop else
+     here r@ cell+ @ @ ! ( set rp to point here )
+     , postpone pause ['] branch , here 3 cells - ,
+   then rdrop
+   2 cells allot ; \ maybe bug above?
+: start-task ( t -- )
+   task-list @ if
+     task-list @ @ over !
+     task-list @ !
+   else
+     dup task-list !
+     dup !
+   then ;
+: stop-task ( t -- ) task-list begin @ 2dup @ = until swap @ swap ! ;
+: ms ( n -- ) ms-ticks >r begin pause ms-ticks r@ - over >= until rdrop drop ;
+
+0 0 0 task main-task  main-task start-task
+
 \ Motors
 2  constant ena 0 constant in1  4 constant in2
 19 constant enb 5 constant in3 18 constant in4
@@ -687,12 +716,14 @@ create httpbuf bufsize allot
     camera-send-image ;
 
 
-:noname ( -- n ) \ telnet-aware key, also our main event loop
+' camera-poll 20 20 task camera-task  camera-task start-task
+' telnet-poll 20 20 task telnet-task  telnet-task start-task
+
+:noname ( -- n ) \ task-friendly telnet-aware key
     begin
-	camera-poll
-        telnet-poll
-        SKEY? if SKEY exit then
-        telnet-key? if telnet-key exit then
+       pause
+       SKEY? if SKEY exit then
+       telnet-key? if telnet-key exit then
     again ; is key
 :noname ( n n -- ) 2dup STYPE telnet-try-type ; is type
 
@@ -701,8 +732,8 @@ create httpbuf bufsize allot
 
 
 wifi-init
-motors-init
-camera-init
+." motors-init: " motors-init cr
+." camera-init: " camera-init cr
 23 server-init to telnet-sockfd
 1337 server-init to camera-sockfd
 
@@ -718,38 +749,6 @@ ip?
 quit
 )";
 
-/*
-
-\ Tasks
-variable task-list
-: .tasks   task-list @ begin dup 5 cells - see. @ dup task-list @ = until drop ;
-: pause
-  rp@ sp@ task-list @ cell+ !
-  task-list @ @ task-list !
-  task-list @ cell+ @ sp! rp! ;
-: task ( xt dsz rsz "name" )
-   create here >r 0 , 0 , ( link, sp )
-   swap here cell+ r@ cell+ ! cells allot
-   here r@ cell+ @ ! cells allot
-   dup 0= if drop else
-     here r@ cell+ @ @ ! ( set rp to point here )
-     , postpone pause ['] branch , here 3 cells - ,
-   then rdrop ;
-: start-task ( t -- )
-   task-list @ if
-     task-list @ @ over !
-     task-list @ !
-   else
-     dup task-list !
-     dup !
-   then ;
-
-0 0 0 task main-task  main-task start-task
-
-: ms ( n -- ) ms-ticks >r begin pause ms-ticks r@ - over >= until rdrop drop ;
-: printtask 0 begin pause ( ." loop " dup . ) 1 + 1000 ms again ;
-' printtask 10 10 task print-task print-task start-task
-*/
 
 void setup()
 {
