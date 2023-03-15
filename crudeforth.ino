@@ -285,7 +285,7 @@ void ueforth(void *here, const char *src, cell_t src_len)
 #undef X
 
   g_sys.DOLIT_XT = FIND("DOLIT");
-  /* g_sys.NOTFOUND_XT uninitialized */
+  g_sys.NOTFOUND_XT = 0;
   g_sys.base = 10;
   g_sys.state = 0;
   g_sys.tin = 0;
