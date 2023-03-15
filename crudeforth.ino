@@ -597,7 +597,6 @@ variable task-list
 2 constant PWMCHAN_DRIVE
 1 constant PWMCHAN_STEER
 15974 constant PWMFREQ
-2 constant PINMODE_OUTPUT
 12 constant 12BIT
 2000 value rampstrength
 600 value drivestrength
@@ -605,11 +604,13 @@ variable task-list
 500 value steptime
 3000 value steerstrength
 
-in1 PINMODE_OUTPUT pinmode in2 PINMODE_OUTPUT pinmode
-in3 PINMODE_OUTPUT pinmode in4 PINMODE_OUTPUT pinmode
+: output ( pin -- ) 2 pinmode ;
 
-: hi ( n -- ) 1 digitalwrite ;
-: lo ( n -- ) 0 digitalwrite ;
+in1 output in2 output
+in3 output in4 output
+
+: hi ( pin -- ) 1 digitalwrite ;
+: lo ( pin -- ) 0 digitalwrite ;
 
 : steer  ( -- ) PWMCHAN_STEER steerstrength ledcwrite ;
 : left   ( -- ) in3 hi  in4 lo  steer ;
