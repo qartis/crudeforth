@@ -7,6 +7,7 @@
 #include <setjmp.h>
 #include "esp_camera.h"
 #include <xtensa/xtensa_api.h>
+#include <esp_task_wdt.h>
 #include "exception_names.h"
 
 typedef intptr_t cell_t;
@@ -48,6 +49,7 @@ void register_exception_handlers(void)
 #define HEAP_SIZE (25 * 1024)
 #define STACK_SIZE 128
 #define FLAG_IMMEDIATE 1
+#define WDT_TIMEOUT 10
 
 #define DUP *++sp = tos
 #define DROP tos = *sp--
@@ -130,6 +132,7 @@ void register_exception_handlers(void)
   X("ESP_CAMERA_DEINIT", ESP_CAMERA_DEINIT, DUP; tos = esp_camera_deinit()) \
   X("ESP_CAMERA_FB_GET", ESP_CAMERA_FB_GET, DUP; tos = (cell_t)esp_camera_fb_get()) \
   X("ESP_CAMERA_FB_RETURN", ESP_CAMERA_FB_RETURN, esp_camera_fb_return((camera_fb_t *)tos); DROP) \
+  X("ESP-TASK-WDT-RESET", ESP_TASK_WDT_RESET, esp_task_wdt_reset()) \
   X("DD", DD, for(cell_t *start = (cell_t *)here + STACK_SIZE + STACK_SIZE; start < g_sys.here; start++) { printf("%08x: %08x\n", start, *start); } ) \
 
 struct {
@@ -722,8 +725,11 @@ create httpbuf bufsize allot
     camera-send-image ;
 
 
+: wdt-reset begin ESP-TASK-WDT-RESET 5000 ms again ;
+
 ' camera-poll 20 20 task camera-task  camera-task start-task
 ' telnet-poll 20 20 task telnet-task  telnet-task start-task
+' wdt-reset 20 20 task wdt-task  wdt-task start-task
 
 :noname ( -- n ) \ task-friendly telnet-aware key
     begin
@@ -762,6 +768,9 @@ void setup()
   Serial.begin(115200);
   esp_netif_init();
   WiFi.setSleep(false);
+
+  esp_task_wdt_init(WDT_TIMEOUT, true);
+  esp_task_wdt_add(NULL);
 
   ueforth(heap, boot, sizeof(boot));
 }
