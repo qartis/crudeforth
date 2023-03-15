@@ -5,10 +5,10 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <setjmp.h>
-#include "esp_camera.h"
 #include <xtensa/xtensa_api.h>
 #include <esp_task_wdt.h>
 #include "exception_names.h"
+#include "esp_camera.h"
 
 typedef intptr_t cell_t;
 
@@ -128,10 +128,10 @@ void register_exception_handlers(void)
   X("NON-BLOCK", NON_BLOCK, tos = fcntl(tos, F_SETFL, O_NONBLOCK); tos = tos < 0 ? errno : 0) \
   X("CLOSE-FILE", CLOSE_FILE, tos = close(tos)) \
   X("MS-TICKS", MS_TICKS, DUP; tos = millis()) \
-  X("ESP_CAMERA_INIT", ESP_CAMERA_INIT, tos = esp_camera_init((camera_config_t *)tos)) \
-  X("ESP_CAMERA_DEINIT", ESP_CAMERA_DEINIT, DUP; tos = esp_camera_deinit()) \
-  X("ESP_CAMERA_FB_GET", ESP_CAMERA_FB_GET, DUP; tos = (cell_t)esp_camera_fb_get()) \
-  X("ESP_CAMERA_FB_RETURN", ESP_CAMERA_FB_RETURN, esp_camera_fb_return((camera_fb_t *)tos); DROP) \
+  X("ESP-CAMERA-INIT", ESP_CAMERA_INIT, tos = esp_camera_init((camera_config_t *)tos)) \
+  X("ESP-CAMERA-DEINIT", ESP_CAMERA_DEINIT, DUP; tos = esp_camera_deinit()) \
+  X("ESP-CAMERA-FB-GET", ESP_CAMERA_FB_GET, DUP; tos = (cell_t)esp_camera_fb_get()) \
+  X("ESP-CAMERA-FB-RETURN", ESP_CAMERA_FB_RETURN, esp_camera_fb_return((camera_fb_t *)tos); DROP) \
   X("ESP-TASK-WDT-RESET", ESP_TASK_WDT_RESET, esp_task_wdt_reset()) \
   X("DD", DD, for(cell_t *start = (cell_t *)here + STACK_SIZE + STACK_SIZE; start < g_sys.here; start++) { printf("%08x: %08x\n", start, *start); } ) \
 
@@ -586,7 +586,7 @@ variable task-list
      dup !
    then ;
 : stop-task ( t -- ) task-list begin @ 2dup @ = until swap @ swap ! ;
-: ms ( n -- ) ms-ticks >r begin pause ms-ticks r@ - over >= until rdrop drop ;
+: ms ( n -- ) MS-TICKS >r begin pause MS-TICKS r@ - over >= until rdrop drop ;
 
 0 0 0 task main-task  main-task start-task
 
@@ -641,10 +641,10 @@ in3 PINMODE_OUTPUT pinmode in4 PINMODE_OUTPUT pinmode
 sockaddr serversock
 : server-init ( port -- fd )
     serversock ->port!
-    AF_INET SOCK_STREAM 0 socket
-    dup serversock sizeof(sockaddr_in) bind throw
-    dup 1 listen throw
-    dup non-block throw ;
+    AF_INET SOCK_STREAM 0 SOCKET
+    dup serversock sizeof(sockaddr_in) BIND throw
+    dup 1 LISTEN throw
+    dup NON-BLOCK throw ;
 
 \ Telnet
 -1 value telnet-sockfd
@@ -654,20 +654,20 @@ variable client-len
 variable telnet-c -1 telnet-c !
 
 : telnet-client-connected ( -- n ) telnet-clientfd -1 <> ;
-: telnet-client-reset ( -- ) telnet-clientfd close-file drop -1 to telnet-clientfd ;
+: telnet-client-reset ( -- ) telnet-clientfd CLOSE-FILE drop -1 to telnet-clientfd ;
 : telnet-c-valid ( -- flag ) telnet-c @ -1 <> ;
 : telnet-c-reset ( -- ) -1 telnet-c ! ;
 : telnet-key ( -- n ) telnet-c uc@ telnet-c-reset ;
 : telnet-handle-err ( flag -- ) if telnet-client-reset then ;
-: telnet-tryreadc ( -- ) telnet-client-connected invert ?exit telnet-clientfd telnet-c 1 read-file 0= telnet-handle-err ;
-: telnet-try-type ( addr u -- ) telnet-client-connected 0= if 2drop exit then telnet-clientfd -rot write-file 0< telnet-handle-err ;
+: telnet-tryreadc ( -- ) telnet-client-connected invert ?exit telnet-clientfd telnet-c 1 READ-FILE 0= telnet-handle-err ;
+: telnet-try-type ( addr u -- ) telnet-client-connected 0= if 2drop exit then telnet-clientfd -rot WRITE-FILE 0< telnet-handle-err ;
 : telnet-key? ( -- flag ) telnet-c-valid if -1 exit then telnet-c-reset telnet-tryreadc telnet-c-valid ;
 
 : telnet-poll ( -- )
     telnet-client-connected ?exit
-    telnet-sockfd telnet-clientsock client-len sockaccept
+    telnet-sockfd telnet-clientsock client-len SOCKACCEPT
         to telnet-clientfd
-    telnet-clientfd non-block drop ;
+    telnet-clientfd NON-BLOCK drop ;
 
 \ Camera
 -1 value camera-sockfd
@@ -693,10 +693,10 @@ create camera-config
   1 , ( fb_count )
   CAMERA_FB_IN_DRAM ,
 
-: camera-init ( -- ) camera-config esp_camera_init drop ;
+: camera-init ( -- ) camera-config ESP-CAMERA-INIT drop ;
 
-: send ( buf len -- ) camera-clientfd -rot write-file drop ;
-: client-emit ( c -- )  >r camera-clientfd rp@ 1 write-file drop rdrop ;
+: send ( buf len -- ) camera-clientfd -rot WRITE-FILE drop ;
+: client-emit ( c -- )  >r camera-clientfd rp@ 1 WRITE-FILE drop rdrop ;
 : client-cr 13 client-emit 10 client-emit ;
 
 512 constant bufsize
@@ -705,7 +705,7 @@ create httpbuf bufsize allot
 : camera-send-image
     \ pretend to read the request..
     20 ms
-    camera-clientfd httpbuf bufsize read-file drop
+    camera-clientfd httpbuf bufsize READ-FILE drop
 
     s" HTTP/1.1 200 OK" send client-cr
     s" Content-Type: image/jpeg" send client-cr
@@ -713,13 +713,13 @@ create httpbuf bufsize allot
     s" Access-Control-Allow-Origin: *" send client-cr
     client-cr
 
-    esp_camera_fb_get dup dup @ swap cell+ @ send
-    esp_camera_fb_return ;
+    ESP-CAMERA-FB-GET dup dup @ swap cell+ @ send
+    ESP-CAMERA-FB-RETURN ;
 
 : camera-poll
-    camera-clientfd close-file drop
+    camera-clientfd CLOSE-FILE drop
     -1 to camera-clientfd
-    camera-sockfd camera-clientsock client-len sockaccept
+    camera-sockfd camera-clientsock client-len SOCKACCEPT
     dup 0< if drop exit then
     to camera-clientfd
     camera-send-image ;
